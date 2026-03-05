@@ -72,17 +72,40 @@ public class CsvAttendanceRepository implements AttendanceRepository {
                 var timeOut = TimeUtil.parseTime(p.get(5));
 
                 // Compute late + worked + regular + overtime
-                int lateMinutes = calculator.computeLateMinutes(timeIn);
+             // Compute day status first (NORMAL or HALF_DAY_PM)
+                String dayStatus = calculator.computeDayStatus(timeIn);
+
+                // Compute worked minutes (minus lunch overlap)
                 int workedMinutes = calculator.computeWorkedMinutesMinusLunch(timeIn, timeOut);
 
-                int regularMinutes = calculator.computeRegularMinutes(date, workedMinutes);
-                int overtimeMinutes = calculator.computeOvertimeMinutes(date, workedMinutes);
+                // Compute late (rounded, morning only)
+                int lateMinutesRounded = calculator.computeLateMinutesRounded(timeIn);
 
+                // Compute undertime (rounded)
+                int undertimeMinutesRounded = calculator.computeUndertimeMinutesRounded(date, timeOut, dayStatus);
+
+                // Compute overtime (rounded) - includes weekend rule
+                int overtimeMinutesRounded = calculator.computeOvertimeMinutesRounded(date, timeOut, workedMinutes);
+
+                // Compute regular minutes (paid)
+                int regularMinutes = calculator.computeRegularMinutes(
+                        date,
+                        workedMinutes,
+                        lateMinutesRounded,
+                        undertimeMinutesRounded,
+                        dayStatus
+                );
+
+                // Build record
                 AttendanceRecord rec = new AttendanceRecord(
                         id, lastName, firstName,
                         date, timeIn, timeOut,
-                        lateMinutes, workedMinutes,
-                        regularMinutes, overtimeMinutes
+                        workedMinutes,
+                        lateMinutesRounded,
+                        undertimeMinutesRounded,
+                        regularMinutes,
+                        overtimeMinutesRounded,
+                        dayStatus
                 );
 
                 out.add(rec);

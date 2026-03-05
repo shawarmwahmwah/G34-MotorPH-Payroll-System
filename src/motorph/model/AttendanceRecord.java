@@ -5,19 +5,23 @@ import java.time.LocalTime;
 
 public class AttendanceRecord {
 
+    // Raw data
     private final String employeeId;
     private final String lastName;
     private final String firstName;
-
     private final LocalDate date;
     private final LocalTime timeIn;
     private final LocalTime timeOut;
 
-    // Computed values (in minutes)
-    private final int lateMinutes;
-    private final int workedMinutes;   // after removing lunch + late deduction is NOT removed here
-    private final int regularMinutes;  // weekday only, max 8 hours (480 minutes)
-    private final int overtimeMinutes; // weekday overtime OR weekend work treated as overtime
+    // Computed values (minutes)
+    private final int workedMinutes;       // paid minutes after subtracting lunch overlap
+    private final int lateMinutesRounded;  // late rounded to 15-minute increments (morning only)
+    private final int undertimeMinutesRounded; // early-leave rounded to 15-minute increments
+    private final int regularMinutes;      // paid regular minutes (after late/undertime deductions)
+    private final int overtimeMinutesRounded;  // overtime rounded to 15-minute increments
+
+    // Day status: NORMAL / HALF_DAY_PM / ABSENT etc.
+    private final String dayStatus;
 
     public AttendanceRecord(
             String employeeId,
@@ -26,10 +30,12 @@ public class AttendanceRecord {
             LocalDate date,
             LocalTime timeIn,
             LocalTime timeOut,
-            int lateMinutes,
             int workedMinutes,
+            int lateMinutesRounded,
+            int undertimeMinutesRounded,
             int regularMinutes,
-            int overtimeMinutes
+            int overtimeMinutesRounded,
+            String dayStatus
     ) {
         this.employeeId = employeeId;
         this.lastName = lastName;
@@ -37,13 +43,15 @@ public class AttendanceRecord {
         this.date = date;
         this.timeIn = timeIn;
         this.timeOut = timeOut;
-        this.lateMinutes = lateMinutes;
         this.workedMinutes = workedMinutes;
+        this.lateMinutesRounded = lateMinutesRounded;
+        this.undertimeMinutesRounded = undertimeMinutesRounded;
         this.regularMinutes = regularMinutes;
-        this.overtimeMinutes = overtimeMinutes;
+        this.overtimeMinutesRounded = overtimeMinutesRounded;
+        this.dayStatus = dayStatus;
     }
 
-    // Basic getters
+    // Getters
     public String getEmployeeId() { return employeeId; }
     public String getLastName() { return lastName; }
     public String getFirstName() { return firstName; }
@@ -51,16 +59,20 @@ public class AttendanceRecord {
     public LocalTime getTimeIn() { return timeIn; }
     public LocalTime getTimeOut() { return timeOut; }
 
-    // Computed getters
-    public int getLateMinutes() { return lateMinutes; }
     public int getWorkedMinutes() { return workedMinutes; }
+    public int getLateMinutesRounded() { return lateMinutesRounded; }
+    public int getUndertimeMinutesRounded() { return undertimeMinutesRounded; }
     public int getRegularMinutes() { return regularMinutes; }
-    public int getOvertimeMinutes() { return overtimeMinutes; }
+    public int getOvertimeMinutesRounded() { return overtimeMinutesRounded; }
 
-    // Convenience helpers (hours as double)
+    public String getDayStatus() { return dayStatus; }
+
+    // Convenience helpers: convert minutes -> hours
     public double getWorkedHours() { return workedMinutes / 60.0; }
     public double getRegularHours() { return regularMinutes / 60.0; }
-    public double getOvertimeHours() { return overtimeMinutes / 60.0; }
+    public double getOvertimeHours() { return overtimeMinutesRounded / 60.0; }
+    public double getLateHours() { return lateMinutesRounded / 60.0; }
+    public double getUndertimeHours() { return undertimeMinutesRounded / 60.0; }
 
     public String getFullName() {
         return lastName + ", " + firstName;
