@@ -55,5 +55,29 @@ public class ConsoleApp {
             System.out.printf("%-16s : %.2f%n", "Allowances Total", emp.getTotalAllowances());
         	
         	sc.close();
+        	
+        	// --- Attendance test: show totals for the month of June 2024 (example) ---
+        	motorph.repository.CsvAttendanceRepository attRepo = new motorph.repository.CsvAttendanceRepository();
+        	var records = attRepo.findByEmployeeId(emp.getEmployeeId());
+
+        	int totalLate = 0;
+        	int totalWorked = 0;
+        	int totalRegular = 0;
+        	int totalOvertime = 0;
+
+        	for (var r : records) {
+        	    totalLate += r.getLateMinutes();
+        	    totalWorked += r.getWorkedMinutes();
+        	    totalRegular += r.getRegularMinutes();
+        	    totalOvertime += r.getOvertimeMinutes();
+        	}
+
+        	System.out.println();
+        	System.out.println("Attendance Summary (All Records Found)");
+        	System.out.println();
+        	System.out.printf("%-16s : %.2f%n", "Worked Hours", totalWorked / 60.0);
+        	System.out.printf("%-16s : %.2f%n", "Regular Hours", totalRegular / 60.0);
+        	System.out.printf("%-16s : %.2f%n", "Overtime Hours", totalOvertime / 60.0);
+        	System.out.printf("%-16s : %d%n", "Late Minutes", totalLate);
     }
 }
