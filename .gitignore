@@ -1,0 +1,17 @@
+# Eclipse junk (do not push)
+.metadata/
+bin/
+.settings/
+*.class
+
+# OS junk
+.DS_Store
+Thumbs.db# Eclipse junk (do not push)
+.metadata/
+bin/
+.settings/
+*.class
+
+# OS junk
+.DS_Store
+Thumbs.db
