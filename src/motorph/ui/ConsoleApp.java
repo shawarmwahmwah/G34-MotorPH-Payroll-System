@@ -10,18 +10,15 @@ import motorph.repository.CsvAttendanceRepository;
 import motorph.repository.CsvEmployeeRepository;
 import motorph.repository.CsvUserRepository;
 import motorph.service.AuthService;
+import motorph.service.PayrollCalculator;
+import motorph.service.ContributionCalculator;
 
-/*
- * ConsoleApp
- *
- * This class is ONLY for backend testing.
- * Later, the GUI login screen will replace this.
- *
- * Purpose:
+/*checklist natin for documentation: ConsoleApp
  * 1) Test login system
  * 2) Load employee information
  * 3) Load attendance records
  * 4) Compute attendance summary for a payroll period
+ * 5) Compute payroll
  */
 public class ConsoleApp {
 
@@ -129,8 +126,79 @@ public class ConsoleApp {
             System.out.printf("%-16s : %.2f%n", "Late Hours", totalLate / 60.0);
             System.out.printf("%-16s : %.2f%n", "Undertime Hours", totalUndertime / 60.0);
             System.out.printf("%-16s : %d%n", "Days Counted", records.size());
-        }
+        
+            // PAYROLL COMPUTATION
+            PayrollCalculator payroll = new PayrollCalculator();
+
+            // Convert minutes → hours
+            double regularHours = totalRegular / 60.0;
+            double overtimeHours = totalOvertime / 60.0;
+            double lateHours = totalLate / 60.0;
+            double undertimeHours = totalUndertime / 60.0;
+
+            // Employee rate
+            double rate = emp.getHourlyRate();
+
+            // Compute salary components
+            double regularPay = payroll.computeRegularPay(regularHours, rate);
+            double overtimePay = payroll.computeOvertimePay(overtimeHours, rate);
+            double lateDeduction = payroll.computeLateDeduction(lateHours, rate);
+            double undertimeDeduction = payroll.computeUndertimeDeduction(undertimeHours, rate);
+
+            // Allowances
+            double allowances = emp.getTotalAllowances();
+
+            // Compute Gross Pay
+            double grossPay = payroll.computeGrossPay(
+            		regularPay,
+            		overtimePay,
+            		lateDeduction,
+            		undertimeDeduction,
+            		allowances
+            		);
+
+         // Display payroll summary
+         System.out.println();
+         System.out.println("Payroll Computation");
+         System.out.println();
+
+         System.out.printf("%-20s : %.2f%n", "Regular Pay", regularPay);
+         System.out.printf("%-20s : %.2f%n", "Overtime Pay", overtimePay);
+         System.out.printf("%-20s : %.2f%n", "Late Deduction", lateDeduction);
+         System.out.printf("%-20s : %.2f%n", "Undertime Deduction", undertimeDeduction);
+         System.out.printf("%-20s : %.2f%n", "Allowances", allowances);
+
+         System.out.println();
+
+         System.out.printf("%-20s : %.2f%n", "Gross Pay", grossPay);
+        
+        ContributionCalculator contrib = new ContributionCalculator();
+
+        double sss = contrib.computeSSS(grossPay);
+        double philhealth = contrib.computePhilHealth(grossPay);
+        double pagibig = contrib.computePagibig(grossPay);
+
+        // Taxable income
+        double taxableIncome = grossPay - sss - philhealth - pagibig;
+
+        double tax = contrib.computeWithholdingTax(taxableIncome);
+
+        double netPay = grossPay - sss - philhealth - pagibig - tax;
+
+        System.out.println();
+        System.out.println("Government Deductions");
+        System.out.println();
+
+        System.out.printf("%-20s : %.2f%n", "SSS", sss);
+        System.out.printf("%-20s : %.2f%n", "PhilHealth", philhealth);
+        System.out.printf("%-20s : %.2f%n", "Pag-IBIG", pagibig);
+        System.out.printf("%-20s : %.2f%n", "Withholding Tax", tax);
+
+        System.out.println();
+
+        System.out.printf("%-20s : %.2f%n", "Net Pay", netPay);
 
         sc.close();
+        }
     }
 }
