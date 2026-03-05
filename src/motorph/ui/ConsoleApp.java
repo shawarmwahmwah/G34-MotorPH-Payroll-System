@@ -12,7 +12,7 @@ import motorph.repository.CsvUserRepository;
 import motorph.service.AuthService;
 import motorph.service.PayrollCalculator;
 import motorph.service.ContributionCalculator;
-
+import motorph.service.PayslipGenerator;
 /*checklist natin for documentation: ConsoleApp
  * 1) Test login system
  * 2) Load employee information
@@ -197,6 +197,24 @@ public class ConsoleApp {
         System.out.println();
 
         System.out.printf("%-20s : %.2f%n", "Net Pay", netPay);
+        
+        PayslipGenerator payslip = new PayslipGenerator();
+
+        payslip.printPayslip(
+                emp,
+                month,
+                year,
+                regularPay,
+                overtimePay,
+                allowances,
+                lateDeduction,
+                undertimeDeduction,
+                sss,
+                philhealth,
+                pagibig,
+                tax,
+                netPay
+        );
 
         sc.close();
         }

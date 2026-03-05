@@ -6,10 +6,10 @@ import java.io.FileReader;
 public class ContributionCalculator {
 
     // File locations
-    private static final String SSS_FILE = "data/sss_table.csv";
-    private static final String PHILHEALTH_FILE = "data/philhealth_table.csv";
-    private static final String PAGIBIG_FILE = "data/pagibig_table.csv";
-    private static final String TAX_FILE = "data/withholding_tax_table.csv";
+    private static final String SSS_FILE = "data/sss_contribution.csv";
+    private static final String PHILHEALTH_FILE = "data/philhealth_contribution.csv";
+    private static final String PAGIBIG_FILE = "data/pagibig_contribution.csv";
+    private static final String TAX_FILE = "data/withholding_tax.csv";
 
     public double computeSSS(double grossPay) {
 

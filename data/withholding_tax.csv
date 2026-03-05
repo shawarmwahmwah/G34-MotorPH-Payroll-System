@@ -1,21 +1,7 @@
-Monthly Rate,Tax Rate
-"20,832 and below",No withholding tax
-"20,833 to below 33,333","20% in excess of 20,833"
-"33,333 to below 66,667","2,500 plus 25% in excess of 33,333"
-"66,667 to below 166,667","10,833 plus 30% in excess of 66,667"
-"166,667 to below 666,667","40,833.33 plus 32% in excess over 166,667"
-"666,667 and above","200,833.33 plus 35% in excess of 666,667"
-,
-NOTE: Withholding tax is calculated after applying deductions.,
-SAMPLE,
-Monthly Salary,"25,000"
-,
-SSS Deduction,"1,125"
-Philhealth Deduction,375
-Pag-ibig Deduction,100
-TOTAL DEDUCTIONS,"1,600"
-,
-TAXABLE INCOME (Salary - Total Deductions),"23,400"
-,
-WITHHOLDING TAX,513.4
-"Calculation (20% in excess of 20,833)","(23,400-20,833)*20%"
+minSalary,maxSalary,baseTax,rate
+0,20832,0,0
+20833,33332,0,0.20
+33333,66666,2500,0.25
+66667,166666,10833,0.30
+166667,666666,40833.33,0.32
+666667,999999999,200833.33,0.35
