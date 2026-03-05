@@ -1,46 +1,75 @@
 package motorph.repository;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.nio.file.Path;
+import java.io.*;
+import java.util.ArrayList;
+import java.util.List;
 
 import motorph.model.UserAccount;
-import motorph.util.CsvUtil;
-import motorph.util.PathHelper;
 
-public class CsvUserRepository implements UserRepository {
+public class CsvUserRepository {
 
-    private final Path userFile;
+    private static final String FILE_PATH = "data/user.csv";
 
-    public CsvUserRepository() {
-        this.userFile = PathHelper.getDataFile("user.csv");
-    }
+    public List<UserAccount> loadUsers() {
 
-    @Override
-    public UserAccount findByUsername(String username) {
-        try (BufferedReader br = new BufferedReader(new FileReader(userFile.toFile()))) {
-            String line = br.readLine(); // header
-            if (line == null) return null;
+        List<UserAccount> users = new ArrayList<>();
+
+        try (BufferedReader br = new BufferedReader(new FileReader(FILE_PATH))) {
+
+            String line;
+
+            // Skip header
+            br.readLine();
 
             while ((line = br.readLine()) != null) {
-                if (line.trim().isEmpty()) continue;
 
-                // user.csv is not quoted, but this works either way
-                var parts = CsvUtil.splitCsvLine(line);
-                if (parts.size() < 4) continue;
+                String[] parts = line.split(",");
 
-                String fileUsername = parts.get(0);
-                String password = parts.get(1);
-                String role = parts.get(2);
-                String employeeId = parts.get(3);
+                String username = parts[0];
+                String password = parts[1];
+                String role = parts[2];
+                String employeeId = parts[3];
+                int failedAttempts = Integer.parseInt(parts[4]);
+                boolean locked = Boolean.parseBoolean(parts[5]);
 
-                if (fileUsername.equalsIgnoreCase(username)) {
-                    return new UserAccount(fileUsername, password, role, employeeId);
-                }
+                users.add(new UserAccount(
+                        username,
+                        password,
+                        role,
+                        employeeId,
+                        failedAttempts,
+                        locked));
             }
+
         } catch (Exception e) {
-            System.out.println("Error reading user.csv: " + e.getMessage());
+            e.printStackTrace();
         }
-        return null;
+
+        return users;
     }
+
+    public void saveUsers(List<UserAccount> users) {
+
+        try (PrintWriter pw = new PrintWriter(new FileWriter(FILE_PATH))) {
+
+            // Write header
+            pw.println("username,password,role,employeeId,failedAttempts,isLocked");
+
+            for (UserAccount u : users) {
+
+                pw.println(
+                        u.getUsername() + "," +
+                        u.getPassword() + "," +
+                        u.getRole() + "," +
+                        u.getEmployeeId() + "," +
+                        u.getFailedAttempts() + "," +
+                        u.isLocked()
+                );
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
 }
