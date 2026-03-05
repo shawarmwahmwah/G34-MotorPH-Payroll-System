@@ -13,6 +13,7 @@ import motorph.service.AuthService;
 import motorph.service.PayrollCalculator;
 import motorph.service.ContributionCalculator;
 import motorph.service.PayslipGenerator;
+import motorph.repository.ActivityLogRepository;
 /*checklist natin for documentation: ConsoleApp
  * 1) Test login system
  * 2) Load employee information
@@ -156,7 +157,14 @@ public class ConsoleApp {
             		undertimeDeduction,
             		allowances
             		);
+            ActivityLogRepository logRepo = new ActivityLogRepository();
 
+            logRepo.log(
+                    emp.getEmployeeId(),
+                    "PAYROLL_GENERATED",
+                    "Payroll generated for " + month + "/" + year
+            );
+            
          // Display payroll summary
          System.out.println();
          System.out.println("Payroll Computation");

@@ -1,5 +1,5 @@
 username,password,role,employeeId,failedAttempts,isLocked
-manuel.garcia,pass1234,admin,10001,0,false
+manuel.garcia,pass1234,admin,10001,3,true
 antonio.lin,pass1234,employee,10002,0,false
 bianca.aquino,pass1234,employee,10003,0,false
 isabella.reyes,pass1234,employee,10004,0,false
