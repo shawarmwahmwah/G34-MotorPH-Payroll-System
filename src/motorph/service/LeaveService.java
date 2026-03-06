@@ -6,26 +6,41 @@ import java.util.UUID;
 import motorph.model.Employee;
 import motorph.model.LeaveBalance;
 import motorph.model.LeaveRequest;
+import motorph.model.UserAccount;
 import motorph.repository.ActivityLogRepository;
+import motorph.repository.CsvUserRepository;
 import motorph.repository.LeaveBalanceRepository;
 import motorph.repository.LeaveRepository;
 
 /*
  * LeaveService
  *
- * Handles leave request submission, approval, rejection,
- * balance checking, auto-rejection on insufficient balance,
- * and balance deduction after approval.
+ * Handles:
+ * - leave submission
+ * - leave approval
+ * - leave rejection
+ * - leave balance checking
+ * - auto-reject when balance is insufficient
+ * - balance deduction after approval
+ * - approver role validation
  */
 public class LeaveService {
 
+    // Repository for leave request records
     private final LeaveRepository leaveRepo = new LeaveRepository();
+
+    // Repository for leave balances
     private final LeaveBalanceRepository balanceRepo = new LeaveBalanceRepository();
+
+    // Repository for activity logs
     private final ActivityLogRepository logRepo = new ActivityLogRepository();
+
+    // Repository for user accounts so we can check approver role
+    private final CsvUserRepository userRepo = new CsvUserRepository();
 
     /*
      * Employee submits a leave request.
-     * This only stores the request as PENDING.
+     * This stores the request as PENDING first.
      */
     public String submitLeaveRequest(
             Employee emp,
@@ -35,13 +50,36 @@ public class LeaveService {
             double daysRequested,
             String reason
     ) {
-        // Probationary employees cannot request leave
+        // Rule: probationary employees cannot submit leave requests
         if ("Probationary".equalsIgnoreCase(emp.getStatus())) {
             return "Error: Probationary employees cannot submit leave requests.";
         }
 
+        // Basic beginner-friendly validation
+        if (leaveType == null || leaveType.trim().isEmpty()) {
+            return "Error: Leave type is required.";
+        }
+
+        if (startDate == null || startDate.trim().isEmpty()) {
+            return "Error: Start date is required.";
+        }
+
+        if (endDate == null || endDate.trim().isEmpty()) {
+            return "Error: End date is required.";
+        }
+
+        if (daysRequested <= 0) {
+            return "Error: Days requested must be greater than 0.";
+        }
+
+        if (reason == null || reason.trim().isEmpty()) {
+            return "Error: Reason is required.";
+        }
+
+        // Generate short request id for console testing
         String requestId = UUID.randomUUID().toString().substring(0, 8);
 
+        // Create leave request object
         LeaveRequest request = new LeaveRequest(
                 requestId,
                 emp.getEmployeeId(),
@@ -56,19 +94,29 @@ public class LeaveService {
                 ""
         );
 
+        // Save request to CSV
         leaveRepo.addRequest(request);
+
+        // Save activity log
         logRepo.log(emp.getEmployeeId(), "LEAVE_SUBMITTED", "Leave request submitted: " + leaveType);
 
-        return "Leave request submitted successfully. Status: PENDING";
+        return "Leave request submitted successfully. Status: PENDING. Request ID: " + requestId;
     }
 
     /*
      * Approve request:
-     * - check balance
-     * - if insufficient, auto reject
-     * - if sufficient, deduct balance and approve
+     * - approver must have allowed role
+     * - request must still be PENDING
+     * - emergency leave is approved without balance deduction
+     * - if insufficient balance, request becomes AUTO_REJECTED
+     * - if enough balance, deduct then approve
      */
     public String approveLeave(String requestId, String approverId) {
+
+        // Check if approver is allowed to approve
+        if (!isAuthorizedApprover(approverId)) {
+            return "Error: Only HR, Supervisor, or current admin test accounts can approve leave requests.";
+        }
 
         List<LeaveRequest> requests = leaveRepo.loadAll();
         List<LeaveBalance> balances = balanceRepo.loadAll();
@@ -76,16 +124,19 @@ public class LeaveService {
         for (int i = 0; i < requests.size(); i++) {
             LeaveRequest req = requests.get(i);
 
+            // Skip rows until we find the matching request
             if (!req.getRequestId().equals(requestId)) {
                 continue;
             }
 
+            // Only pending requests can be approved
             if (!"PENDING".equalsIgnoreCase(req.getStatus())) {
                 return "Error: Only PENDING requests can be approved.";
             }
 
-            // Emergency leave = unpaid, unlimited, auto-approve
+            // Emergency leave is unpaid and unlimited based on your rule
             if ("Emergency Leave".equalsIgnoreCase(req.getLeaveType())) {
+
                 LeaveRequest updated = new LeaveRequest(
                         req.getRequestId(),
                         req.getEmployeeId(),
@@ -100,30 +151,31 @@ public class LeaveService {
                         "Approved (unpaid emergency leave)"
                 );
 
+                // Replace old request row in memory
                 requests.set(i, updated);
+
+                // Save updated request list
                 leaveRepo.saveAll(requests);
+
+                // Log activity
                 logRepo.log(approverId, "LEAVE_APPROVED", "Emergency leave approved for " + req.getEmployeeId());
 
-                return "Leave approved successfully.";
+                return "Leave approved successfully. Emergency leave is unpaid and no balance was deducted.";
             }
 
-            // Find employee balance
-            LeaveBalance targetBalance = null;
-            for (LeaveBalance b : balances) {
-                if (b.getEmployeeId().equals(req.getEmployeeId())) {
-                    targetBalance = b;
-                    break;
-                }
-            }
+            // Find employee balance record
+            LeaveBalance targetBalance = findBalanceByEmployeeId(balances, req.getEmployeeId());
 
             if (targetBalance == null) {
                 return "Error: Leave balance record not found.";
             }
 
+            // Get current balance for the correct leave type
             double currentBalance = getBalanceByType(targetBalance, req.getLeaveType());
 
-            // Auto reject if insufficient
+            // Auto reject if balance is insufficient
             if (currentBalance < req.getDaysRequested()) {
+
                 LeaveRequest updated = new LeaveRequest(
                         req.getRequestId(),
                         req.getEmployeeId(),
@@ -138,21 +190,27 @@ public class LeaveService {
                         "Insufficient leave balance"
                 );
 
+                // Replace request in memory and save
                 requests.set(i, updated);
                 leaveRepo.saveAll(requests);
-                logRepo.log(approverId, "LEAVE_AUTO_REJECTED",
-                        "Insufficient balance for " + req.getEmployeeId());
+
+                // Log activity
+                logRepo.log(
+                        approverId,
+                        "LEAVE_AUTO_REJECTED",
+                        "Insufficient balance for " + req.getEmployeeId()
+                );
 
                 return "Error: Insufficient leave balance. Request was auto-rejected.";
             }
 
-            // Deduct balance
+            // Deduct leave balance
             deductBalanceByType(targetBalance, req.getLeaveType(), req.getDaysRequested());
 
-            // Save updated balance list
+            // Save updated balance CSV
             balanceRepo.saveAll(balances);
 
-            // Mark request approved
+            // Mark request as approved
             LeaveRequest updated = new LeaveRequest(
                     req.getRequestId(),
                     req.getEmployeeId(),
@@ -167,28 +225,50 @@ public class LeaveService {
                     "Approved successfully"
             );
 
+            // Replace request and save CSV
             requests.set(i, updated);
             leaveRepo.saveAll(requests);
+
+            // Log activity
             logRepo.log(approverId, "LEAVE_APPROVED", "Leave approved for " + req.getEmployeeId());
 
-            return "Leave approved successfully.";
+            return "Leave approved successfully. Balance deducted.";
         }
 
         return "Error: Request ID not found.";
     }
 
+    /*
+     * Reject leave request:
+     * - approver must have allowed role
+     * - request must still be PENDING
+     * - rejection does not deduct balance
+     */
     public String rejectLeave(String requestId, String approverId, String remarks) {
+
+        // Check if approver is allowed to reject
+        if (!isAuthorizedApprover(approverId)) {
+            return "Error: Only HR, Supervisor, or current admin test accounts can reject leave requests.";
+        }
+
         List<LeaveRequest> requests = leaveRepo.loadAll();
 
         for (int i = 0; i < requests.size(); i++) {
             LeaveRequest req = requests.get(i);
 
+            // Skip until matching request is found
             if (!req.getRequestId().equals(requestId)) {
                 continue;
             }
 
+            // Only pending requests can be rejected
             if (!"PENDING".equalsIgnoreCase(req.getStatus())) {
                 return "Error: Only PENDING requests can be rejected.";
+            }
+
+            // Prevent blank remarks so rejection has a reason
+            if (remarks == null || remarks.trim().isEmpty()) {
+                remarks = "Rejected by approver";
             }
 
             LeaveRequest updated = new LeaveRequest(
@@ -205,8 +285,11 @@ public class LeaveService {
                     remarks
             );
 
+            // Replace and save
             requests.set(i, updated);
             leaveRepo.saveAll(requests);
+
+            // Log activity
             logRepo.log(approverId, "LEAVE_REJECTED", "Leave rejected for " + req.getEmployeeId());
 
             return "Leave rejected successfully.";
@@ -218,47 +301,83 @@ public class LeaveService {
     public LeaveBalance viewLeaveBalance(String employeeId) {
         return balanceRepo.findByEmployeeId(employeeId);
     }
-
     public List<LeaveRequest> viewRequestHistory() {
         return leaveRepo.loadAll();
     }
 
-    private double getBalanceByType(LeaveBalance b, String leaveType) {
+    private LeaveBalance findBalanceByEmployeeId(List<LeaveBalance> balances, String employeeId) {
+        for (LeaveBalance balance : balances) {
+            if (balance.getEmployeeId().equals(employeeId)) {
+                return balance;
+            }
+        }
+        return null;
+    }
+
+    private double getBalanceByType(LeaveBalance balance, String leaveType) {
         switch (leaveType) {
             case "Sick Leave":
-                return b.getSickLeave();
+                return balance.getSickLeave();
             case "Vacation Leave":
-                return b.getVacationLeave();
+                return balance.getVacationLeave();
             case "Maternity Leave":
-                return b.getMaternityLeave();
+                return balance.getMaternityLeave();
             case "Paternity Leave":
-                return b.getPaternityLeave();
+                return balance.getPaternityLeave();
             case "Bereavement Leave":
-                return b.getBereavementLeave();
+                return balance.getBereavementLeave();
+            case "Emergency Leave":
+                // Unlimited and unpaid, so approval logic handles it earlier
+                return Double.MAX_VALUE;
             default:
                 return 0.0;
         }
     }
 
-    private void deductBalanceByType(LeaveBalance b, String leaveType, double days) {
+    private void deductBalanceByType(LeaveBalance balance, String leaveType, double daysRequested) {
         switch (leaveType) {
             case "Sick Leave":
-                b.setSickLeave(b.getSickLeave() - days);
+                balance.setSickLeave(balance.getSickLeave() - daysRequested);
                 break;
             case "Vacation Leave":
-                b.setVacationLeave(b.getVacationLeave() - days);
+                balance.setVacationLeave(balance.getVacationLeave() - daysRequested);
                 break;
             case "Maternity Leave":
-                b.setMaternityLeave(b.getMaternityLeave() - days);
+                balance.setMaternityLeave(balance.getMaternityLeave() - daysRequested);
                 break;
             case "Paternity Leave":
-                b.setPaternityLeave(b.getPaternityLeave() - days);
+                balance.setPaternityLeave(balance.getPaternityLeave() - daysRequested);
                 break;
             case "Bereavement Leave":
-                b.setBereavementLeave(b.getBereavementLeave() - days);
+                balance.setBereavementLeave(balance.getBereavementLeave() - daysRequested);
+                break;
+            case "Emergency Leave":
+                // No deduction for emergency leave
                 break;
             default:
+                // Unknown leave type, do nothing
                 break;
         }
+    }
+    private boolean isAuthorizedApprover(String approverId) {
+        List<UserAccount> users = userRepo.loadUsers();
+
+        for (UserAccount user : users) {
+            if (!user.getEmployeeId().equals(approverId)) {
+                continue;
+            }
+
+            String role = user.getRole();
+
+            if (role == null) {
+                return false;
+            }
+
+            return "hr".equalsIgnoreCase(role)
+                    || "supervisor".equalsIgnoreCase(role)
+                    || "admin".equalsIgnoreCase(role);
+        }
+
+        return false;
     }
 }

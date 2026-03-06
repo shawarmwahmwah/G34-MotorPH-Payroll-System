@@ -1,2 +1,5 @@
 requestId,employeeId,employeeName,leaveType,startDate,endDate,daysRequested,status,reason,approverId,remarks
-9a0b19c9,10001,Manuel III Garcia,Sick Leave,06/20/2024,06/20/2024,1.0,PENDING,Fever,,
+9a0b19c9,10001,Manuel III Garcia,Sick Leave,06/20/2024,06/20/2024,1.0,APPROVED,Fever,10001,Approved successfully
+10f538d9,10001,Manuel III Garcia,Vacation Leave,07/20/2024,07/20/2024,1.0,REJECTED,Personal,10001,Not approved for this period
+8d60d481,10001,Manuel III Garcia,Vacation Leave,07/20/2024,07/22/2024,2.0,PENDING,Fever,,
+95dc4ca6,10001,Manuel III Garcia,Vacation Leave,07/20/2024,07/27/2024,7.0,AUTO_REJECTED,Personal,10001,Insufficient leave balance

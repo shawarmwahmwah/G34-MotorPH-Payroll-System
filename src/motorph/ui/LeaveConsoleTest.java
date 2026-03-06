@@ -14,10 +14,10 @@ import motorph.service.LeaveService;
  *
  * This class is only for backend testing of the leave module.
  * It allows us to:
- * 1) submit leave request
- * 2) view leave balance
- * 3) approve request
- * 4) reject request
+ * 1) view leave balance
+ * 2) submit leave request
+ * 3) approve leave request
+ * 4) reject leave request
  * 5) view request history
  *
  * IMPORTANT:
@@ -38,7 +38,7 @@ public class LeaveConsoleTest {
         System.out.println("MotorPH Leave Module - Console Test");
         System.out.println();
 
-        // Ask user which employee to test
+        // Ask which employee we are testing as requester
         System.out.print("Enter Employee ID: ");
         String employeeId = sc.nextLine().trim();
 
@@ -55,7 +55,7 @@ public class LeaveConsoleTest {
         System.out.println("Status    : " + emp.getStatus());
         System.out.println();
 
-        // Simple menu loop
+        // Simple loop for backend testing
         boolean running = true;
 
         while (running) {
@@ -90,7 +90,7 @@ public class LeaveConsoleTest {
                         System.out.printf("%-20s : %.2f%n", "Maternity Leave", balance.getMaternityLeave());
                         System.out.printf("%-20s : %.2f%n", "Paternity Leave", balance.getPaternityLeave());
                         System.out.printf("%-20s : %.2f%n", "Bereavement Leave", balance.getBereavementLeave());
-                        System.out.printf("%-20s : %s%n", "Emergency Leave", "unlimited ");
+                        System.out.printf("%-20s : %s%n", "Emergency Leave", "unlimited");
                     }
 
                     System.out.println();
@@ -132,10 +132,14 @@ public class LeaveConsoleTest {
                     // ----------------------------------------
                     // APPROVE LEAVE REQUEST
                     // ----------------------------------------
+                    System.out.println("Tip: View Request History first so you can copy the Request ID.");
+                    System.out.println("Tip: Based on your current uploaded user.csv, the only elevated test role is admin.");
+                    System.out.println();
+
                     System.out.print("Enter Request ID to approve: ");
                     String approveId = sc.nextLine().trim();
 
-                    System.out.print("Approver ID: ");
+                    System.out.print("Approver Employee ID: ");
                     String approverId = sc.nextLine().trim();
 
                     String approveResult = leaveService.approveLeave(approveId, approverId);
@@ -148,10 +152,14 @@ public class LeaveConsoleTest {
                     // ----------------------------------------
                     // REJECT LEAVE REQUEST
                     // ----------------------------------------
+                    System.out.println("Tip: View Request History first so you can copy the Request ID.");
+                    System.out.println("Tip: Based on your current uploaded user.csv, the only elevated test role is admin.");
+                    System.out.println();
+
                     System.out.print("Enter Request ID to reject: ");
                     String rejectId = sc.nextLine().trim();
 
-                    System.out.print("Approver ID: ");
+                    System.out.print("Approver Employee ID: ");
                     String rejectApproverId = sc.nextLine().trim();
 
                     System.out.print("Remarks: ");
@@ -189,6 +197,7 @@ public class LeaveConsoleTest {
                             System.out.printf("%-18s : %s%n", "Approver ID", req.getApproverId());
                             System.out.printf("%-18s : %s%n", "Remarks", req.getRemarks());
                         }
+
                         System.out.println("----------------------------------------");
                     }
 
@@ -197,7 +206,7 @@ public class LeaveConsoleTest {
 
                 case "0":
                     running = false;
-                    System.out.println("Exiting Leave Module Test...");
+                    System.out.println("Exiting Leave Module Test.");
                     break;
 
                 default:
