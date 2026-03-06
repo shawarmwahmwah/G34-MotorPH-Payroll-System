@@ -1,1 +1,2 @@
-requestId,employeeId,leaveType,startDate,endDate,daysRequested,isPaid,status,requestedAt,approvedBy,approvedAt,remarks
+requestId,employeeId,employeeName,leaveType,startDate,endDate,daysRequested,status,reason,approverId,remarks
+9a0b19c9,10001,Manuel III Garcia,Sick Leave,06/20/2024,06/20/2024,1.0,PENDING,Fever,,
