@@ -12,15 +12,7 @@ import motorph.service.LeaveService;
 /*
  * LeaveConsoleTest
  *
- * This class is only for backend testing of the leave module.
- * It allows us to:
- * 1) view leave balance
- * 2) submit leave request
- * 3) approve leave request
- * 4) reject leave request
- * 5) view request history
- *
- * IMPORTANT:
+ * Backend-only console tester for the leave module.
  * This is not the final GUI.
  */
 public class LeaveConsoleTest {
@@ -29,16 +21,16 @@ public class LeaveConsoleTest {
 
         Scanner sc = new Scanner(System.in);
 
-        // Service object that handles leave business logic
+        // Service that contains leave business logic
         LeaveService leaveService = new LeaveService();
 
-        // Repository to load employee info
+        // Repository used to load employee info
         CsvEmployeeRepository empRepo = new CsvEmployeeRepository();
 
         System.out.println("MotorPH Leave Module - Console Test");
         System.out.println();
 
-        // Ask which employee we are testing as requester
+        // Ask which employee is being used as the requester
         System.out.print("Enter Employee ID: ");
         String employeeId = sc.nextLine().trim();
 
@@ -55,7 +47,7 @@ public class LeaveConsoleTest {
         System.out.println("Status    : " + emp.getStatus());
         System.out.println();
 
-        // Simple loop for backend testing
+        // Menu loop
         boolean running = true;
 
         while (running) {
@@ -75,9 +67,7 @@ public class LeaveConsoleTest {
             switch (choice) {
 
                 case "1":
-                    // ----------------------------------------
-                    // VIEW LEAVE BALANCE
-                    // ----------------------------------------
+                    // View current leave balance
                     LeaveBalance balance = leaveService.viewLeaveBalance(employeeId);
 
                     if (balance == null) {
@@ -97,9 +87,7 @@ public class LeaveConsoleTest {
                     break;
 
                 case "2":
-                    // ----------------------------------------
-                    // SUBMIT LEAVE REQUEST
-                    // ----------------------------------------
+                    // Submit a new leave request
                     System.out.print("Leave Type: ");
                     String leaveType = sc.nextLine().trim();
 
@@ -129,11 +117,9 @@ public class LeaveConsoleTest {
                     break;
 
                 case "3":
-                    // ----------------------------------------
-                    // APPROVE LEAVE REQUEST
-                    // ----------------------------------------
-                    System.out.println("Tip: View Request History first so you can copy the Request ID.");
-                    System.out.println("Tip: Based on your current uploaded user.csv, the only elevated test role is admin.");
+                    // Approve an existing request
+                    System.out.println("Tip: Use option 5 first to view the Request ID.");
+                    System.out.println("Tip: Use an elevated approver employee ID.");
                     System.out.println();
 
                     System.out.print("Enter Request ID to approve: ");
@@ -149,11 +135,9 @@ public class LeaveConsoleTest {
                     break;
 
                 case "4":
-                    // ----------------------------------------
-                    // REJECT LEAVE REQUEST
-                    // ----------------------------------------
-                    System.out.println("Tip: View Request History first so you can copy the Request ID.");
-                    System.out.println("Tip: Based on your current uploaded user.csv, the only elevated test role is admin.");
+                    // Reject an existing request
+                    System.out.println("Tip: Use option 5 first to view the Request ID.");
+                    System.out.println("Tip: Use an elevated approver employee ID.");
                     System.out.println();
 
                     System.out.print("Enter Request ID to reject: ");
@@ -172,9 +156,7 @@ public class LeaveConsoleTest {
                     break;
 
                 case "5":
-                    // ----------------------------------------
-                    // VIEW REQUEST HISTORY
-                    // ----------------------------------------
+                    // Show request history
                     List<LeaveRequest> history = leaveService.viewRequestHistory();
 
                     if (history.isEmpty()) {

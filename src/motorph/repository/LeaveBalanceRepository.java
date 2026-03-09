@@ -12,7 +12,7 @@ import motorph.util.PathHelper;
 
 public class LeaveBalanceRepository {
 
-    // Use PathHelper so file access is consistent with the project standard
+    // Use PathHelper so we avoid hardcoded absolute or manual file paths
     private final Path filePath;
 
     public LeaveBalanceRepository() {
@@ -35,7 +35,7 @@ public class LeaveBalanceRepository {
     }
 
     /*
-     * Load all leave balance rows from CSV.
+     * Load all leave balances from CSV.
      */
     public List<LeaveBalance> loadAll() {
         List<LeaveBalance> balances = new ArrayList<>();
@@ -59,16 +59,14 @@ public class LeaveBalanceRepository {
                     continue;
                 }
 
-                LeaveBalance balance = new LeaveBalance(
+                balances.add(new LeaveBalance(
                         p[0].trim(),
                         Double.parseDouble(p[1].trim()),
                         Double.parseDouble(p[2].trim()),
                         Double.parseDouble(p[3].trim()),
                         Double.parseDouble(p[4].trim()),
                         Double.parseDouble(p[5].trim())
-                );
-
-                balances.add(balance);
+                ));
             }
 
         } catch (Exception e) {
@@ -79,13 +77,13 @@ public class LeaveBalanceRepository {
     }
 
     /*
-     * Save the full leave balance list back to CSV.
-     * We rewrite the file so updated balances replace old values.
+     * Save the full list back to CSV.
+     * We rewrite the file so updated balances replace the old data.
      */
     public void saveAll(List<LeaveBalance> balances) {
         try (FileWriter fw = new FileWriter(filePath.toFile(), false)) {
 
-            // Write header
+            // Write CSV header first
             fw.write("employeeId,sickLeave,vacationLeave,maternityLeave,paternityLeave,bereavementLeave\n");
 
             for (LeaveBalance balance : balances) {

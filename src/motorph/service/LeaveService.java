@@ -16,17 +16,17 @@ import motorph.repository.LeaveRepository;
  * LeaveService
  *
  * Handles:
- * - leave submission
+ * - leave request submission
  * - leave approval
  * - leave rejection
  * - leave balance checking
- * - auto-reject when balance is insufficient
+ * - auto-rejection if balance is insufficient
  * - balance deduction after approval
  * - approver role validation
  */
 public class LeaveService {
 
-    // Repository for leave request records
+    // Repository for leave requests
     private final LeaveRepository leaveRepo = new LeaveRepository();
 
     // Repository for leave balances
@@ -35,12 +35,12 @@ public class LeaveService {
     // Repository for activity logs
     private final ActivityLogRepository logRepo = new ActivityLogRepository();
 
-    // Repository for user accounts so we can check approver role
+    // Repository for users so we can validate approver roles
     private final CsvUserRepository userRepo = new CsvUserRepository();
 
     /*
      * Employee submits a leave request.
-     * This stores the request as PENDING first.
+     * This stores the request first as PENDING.
      */
     public String submitLeaveRequest(
             Employee emp,
@@ -55,7 +55,7 @@ public class LeaveService {
             return "Error: Probationary employees cannot submit leave requests.";
         }
 
-        // Basic beginner-friendly validation
+        // Basic validation so bad input is caught early
         if (leaveType == null || leaveType.trim().isEmpty()) {
             return "Error: Leave type is required.";
         }
@@ -76,10 +76,10 @@ public class LeaveService {
             return "Error: Reason is required.";
         }
 
-        // Generate short request id for console testing
+        // Generate a short request ID for easier console testing
         String requestId = UUID.randomUUID().toString().substring(0, 8);
 
-        // Create leave request object
+        // Create request object
         LeaveRequest request = new LeaveRequest(
                 requestId,
                 emp.getEmployeeId(),
@@ -97,25 +97,27 @@ public class LeaveService {
         // Save request to CSV
         leaveRepo.addRequest(request);
 
-        // Save activity log
+        // Log the action
         logRepo.log(emp.getEmployeeId(), "LEAVE_SUBMITTED", "Leave request submitted: " + leaveType);
 
         return "Leave request submitted successfully. Status: PENDING. Request ID: " + requestId;
     }
 
     /*
-     * Approve request:
-     * - approver must have allowed role
-     * - request must still be PENDING
-     * - emergency leave is approved without balance deduction
-     * - if insufficient balance, request becomes AUTO_REJECTED
-     * - if enough balance, deduct then approve
+     * Approve a leave request.
+     *
+     * Rules:
+     * - only authorized approvers can approve
+     * - only PENDING requests can be approved
+     * - emergency leave is unpaid and unlimited
+     * - insufficient balance causes AUTO_REJECTED
+     * - valid approval deducts the correct balance
      */
     public String approveLeave(String requestId, String approverId) {
 
-        // Check if approver is allowed to approve
+        // Validate if the approver has elevated role
         if (!isAuthorizedApprover(approverId)) {
-            return "Error: Only HR, Supervisor, or current admin test accounts can approve leave requests.";
+            return "Error: Only Admin / HR / Supervisor accounts can approve leave requests.";
         }
 
         List<LeaveRequest> requests = leaveRepo.loadAll();
@@ -124,7 +126,7 @@ public class LeaveService {
         for (int i = 0; i < requests.size(); i++) {
             LeaveRequest req = requests.get(i);
 
-            // Skip rows until we find the matching request
+            // Skip non-matching requests
             if (!req.getRequestId().equals(requestId)) {
                 continue;
             }
@@ -134,7 +136,7 @@ public class LeaveService {
                 return "Error: Only PENDING requests can be approved.";
             }
 
-            // Emergency leave is unpaid and unlimited based on your rule
+            // Emergency leave = unpaid and unlimited
             if ("Emergency Leave".equalsIgnoreCase(req.getLeaveType())) {
 
                 LeaveRequest updated = new LeaveRequest(
@@ -151,7 +153,7 @@ public class LeaveService {
                         "Approved (unpaid emergency leave)"
                 );
 
-                // Replace old request row in memory
+                // Replace the old request object with the updated one
                 requests.set(i, updated);
 
                 // Save updated request list
@@ -163,17 +165,17 @@ public class LeaveService {
                 return "Leave approved successfully. Emergency leave is unpaid and no balance was deducted.";
             }
 
-            // Find employee balance record
+            // Find matching employee balance
             LeaveBalance targetBalance = findBalanceByEmployeeId(balances, req.getEmployeeId());
 
             if (targetBalance == null) {
                 return "Error: Leave balance record not found.";
             }
 
-            // Get current balance for the correct leave type
+            // Check current balance for the specific leave type
             double currentBalance = getBalanceByType(targetBalance, req.getLeaveType());
 
-            // Auto reject if balance is insufficient
+            // Auto-reject if balance is insufficient
             if (currentBalance < req.getDaysRequested()) {
 
                 LeaveRequest updated = new LeaveRequest(
@@ -190,24 +192,20 @@ public class LeaveService {
                         "Insufficient leave balance"
                 );
 
-                // Replace request in memory and save
+                // Replace request and save
                 requests.set(i, updated);
                 leaveRepo.saveAll(requests);
 
                 // Log activity
-                logRepo.log(
-                        approverId,
-                        "LEAVE_AUTO_REJECTED",
-                        "Insufficient balance for " + req.getEmployeeId()
-                );
+                logRepo.log(approverId, "LEAVE_AUTO_REJECTED", "Insufficient balance for " + req.getEmployeeId());
 
                 return "Error: Insufficient leave balance. Request was auto-rejected.";
             }
 
-            // Deduct leave balance
+            // Deduct the approved leave balance
             deductBalanceByType(targetBalance, req.getLeaveType(), req.getDaysRequested());
 
-            // Save updated balance CSV
+            // Save updated balances
             balanceRepo.saveAll(balances);
 
             // Mark request as approved
@@ -225,7 +223,7 @@ public class LeaveService {
                     "Approved successfully"
             );
 
-            // Replace request and save CSV
+            // Replace request and save
             requests.set(i, updated);
             leaveRepo.saveAll(requests);
 
@@ -239,16 +237,18 @@ public class LeaveService {
     }
 
     /*
-     * Reject leave request:
-     * - approver must have allowed role
-     * - request must still be PENDING
-     * - rejection does not deduct balance
+     * Reject a leave request.
+     *
+     * Rules:
+     * - only authorized approvers can reject
+     * - only PENDING requests can be rejected
+     * - rejection does not change leave balance
      */
     public String rejectLeave(String requestId, String approverId, String remarks) {
 
-        // Check if approver is allowed to reject
+        // Validate if the approver has elevated role
         if (!isAuthorizedApprover(approverId)) {
-            return "Error: Only HR, Supervisor, or current admin test accounts can reject leave requests.";
+            return "Error: Only Admin / HR / Supervisor accounts can reject leave requests.";
         }
 
         List<LeaveRequest> requests = leaveRepo.loadAll();
@@ -256,7 +256,7 @@ public class LeaveService {
         for (int i = 0; i < requests.size(); i++) {
             LeaveRequest req = requests.get(i);
 
-            // Skip until matching request is found
+            // Skip non-matching requests
             if (!req.getRequestId().equals(requestId)) {
                 continue;
             }
@@ -266,7 +266,7 @@ public class LeaveService {
                 return "Error: Only PENDING requests can be rejected.";
             }
 
-            // Prevent blank remarks so rejection has a reason
+            // Default remarks if user leaves it blank
             if (remarks == null || remarks.trim().isEmpty()) {
                 remarks = "Rejected by approver";
             }
@@ -285,7 +285,7 @@ public class LeaveService {
                     remarks
             );
 
-            // Replace and save
+            // Replace request and save
             requests.set(i, updated);
             leaveRepo.saveAll(requests);
 
@@ -298,13 +298,24 @@ public class LeaveService {
         return "Error: Request ID not found.";
     }
 
+    /*
+     * View current leave balance of one employee.
+     */
     public LeaveBalance viewLeaveBalance(String employeeId) {
         return balanceRepo.findByEmployeeId(employeeId);
     }
+
+    /*
+     * View request history.
+     * For console testing, returning all requests is okay for now.
+     */
     public List<LeaveRequest> viewRequestHistory() {
         return leaveRepo.loadAll();
     }
 
+    /*
+     * Helper method: find the employee's LeaveBalance row.
+     */
     private LeaveBalance findBalanceByEmployeeId(List<LeaveBalance> balances, String employeeId) {
         for (LeaveBalance balance : balances) {
             if (balance.getEmployeeId().equals(employeeId)) {
@@ -314,6 +325,9 @@ public class LeaveService {
         return null;
     }
 
+    /*
+     * Helper method: return the correct balance based on leave type.
+     */
     private double getBalanceByType(LeaveBalance balance, String leaveType) {
         switch (leaveType) {
             case "Sick Leave":
@@ -327,13 +341,16 @@ public class LeaveService {
             case "Bereavement Leave":
                 return balance.getBereavementLeave();
             case "Emergency Leave":
-                // Unlimited and unpaid, so approval logic handles it earlier
+                // Unlimited and unpaid
                 return Double.MAX_VALUE;
             default:
                 return 0.0;
         }
     }
 
+    /*
+     * Helper method: deduct the approved days from the correct leave type.
+     */
     private void deductBalanceByType(LeaveBalance balance, String leaveType, double daysRequested) {
         switch (leaveType) {
             case "Sick Leave":
@@ -355,10 +372,21 @@ public class LeaveService {
                 // No deduction for emergency leave
                 break;
             default:
-                // Unknown leave type, do nothing
+                // Unknown leave type = no deduction
                 break;
         }
     }
+
+    /*
+     * Helper method: check if the employeeId belongs to an allowed approver role.
+     *
+     * We include:
+     * - admin
+     * - hr
+     * - supervisor
+     *
+     * This keeps your current data working while also matching your final rules.
+     */
     private boolean isAuthorizedApprover(String approverId) {
         List<UserAccount> users = userRepo.loadUsers();
 
@@ -373,9 +401,9 @@ public class LeaveService {
                 return false;
             }
 
-            return "hr".equalsIgnoreCase(role)
-                    || "supervisor".equalsIgnoreCase(role)
-                    || "admin".equalsIgnoreCase(role);
+            return "admin".equalsIgnoreCase(role)
+                    || "hr".equalsIgnoreCase(role)
+                    || "supervisor".equalsIgnoreCase(role);
         }
 
         return false;
