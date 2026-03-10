@@ -1,8 +1,11 @@
 package motorph.ui.panel;
 
 import motorph.model.AttendanceRecord;
+import motorph.model.Employee;
 import motorph.repository.AttendanceRepository;
 import motorph.repository.CsvAttendanceRepository;
+import motorph.repository.CsvEmployeeRepository;
+import motorph.repository.EmployeeRepository;
 import motorph.ui.Theme;
 import motorph.ui.session.UserSession;
 
@@ -12,28 +15,30 @@ import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
-import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
+import javax.swing.JTextField;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.text.DecimalFormat;
-import java.time.format.DateTimeFormatter;
 import java.time.Month;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.Locale;
 
 /**
  * AttendancePanel
  *
- * Real attendance module panel.
- * Loads the logged-in employee's attendance records from the repository
- * and displays monthly attendance plus summary values.
+ * Real attendance module panel with role-based viewing rules:
+ * - Employee and IT can only view their own attendance
+ * - HR, Admin, and Supervisor can view other employees' attendance
+ *
+ * Late and undertime are displayed in hours using 0.25 increments,
+ * based on the already-rounded 15-minute backend logic.
  */
 public class AttendancePanel extends JPanel {
 
@@ -41,19 +46,24 @@ public class AttendancePanel extends JPanel {
 
     private final UserSession session;
     private final AttendanceRepository attendanceRepository;
+    private final EmployeeRepository employeeRepository;
 
+    private final JTextField employeeSearchField;
+    private final JComboBox<EmployeeItem> employeeComboBox;
     private final JComboBox<Integer> yearComboBox;
     private final JComboBox<MonthItem> monthComboBox;
 
+    private final JLabel selectedEmployeeValueLabel;
     private final JLabel daysWithLogsValueLabel;
     private final JLabel totalWorkedHoursValueLabel;
-    private final JLabel totalLateMinutesValueLabel;
-    private final JLabel totalUndertimeMinutesValueLabel;
+    private final JLabel totalLateHoursValueLabel;
+    private final JLabel totalUndertimeHoursValueLabel;
     private final JLabel totalOvertimeHoursValueLabel;
 
     private final DefaultTableModel tableModel;
 
-    private final List<AttendanceRecord> allEmployeeRecords;
+    private List<Employee> allEmployees;
+    private List<AttendanceRecord> currentEmployeeRecords;
 
     private static final DecimalFormat HOURS_FORMAT = new DecimalFormat("0.00");
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
@@ -62,33 +72,29 @@ public class AttendancePanel extends JPanel {
     public AttendancePanel(UserSession session) {
         this.session = session;
         this.attendanceRepository = new CsvAttendanceRepository();
-        this.allEmployeeRecords = attendanceRepository.findByEmployeeId(session.getEmployeeId());
+        this.employeeRepository = new CsvEmployeeRepository();
 
-        setLayout(new BorderLayout());
-        setBackground(Theme.CONTENT_BACKGROUND);
-        setBorder(BorderFactory.createEmptyBorder(28, 28, 28, 28));
+        this.employeeSearchField = new JTextField();
+        this.employeeComboBox = new JComboBox<>();
+        this.yearComboBox = new JComboBox<>();
+        this.monthComboBox = new JComboBox<>();
 
-        // Top controls
-        yearComboBox = new JComboBox<>();
-        monthComboBox = new JComboBox<>();
+        this.selectedEmployeeValueLabel = new JLabel("-");
+        this.daysWithLogsValueLabel = new JLabel("0");
+        this.totalWorkedHoursValueLabel = new JLabel("0.00");
+        this.totalLateHoursValueLabel = new JLabel("0.00");
+        this.totalUndertimeHoursValueLabel = new JLabel("0.00");
+        this.totalOvertimeHoursValueLabel = new JLabel("0.00");
 
-        // Summary labels
-        daysWithLogsValueLabel = new JLabel("0");
-        totalWorkedHoursValueLabel = new JLabel("0.00");
-        totalLateMinutesValueLabel = new JLabel("0");
-        totalUndertimeMinutesValueLabel = new JLabel("0");
-        totalOvertimeHoursValueLabel = new JLabel("0.00");
-
-        // Table model with non-editable cells
-        tableModel = new DefaultTableModel(
+        this.tableModel = new DefaultTableModel(
                 new Object[]{
                         "Date",
                         "Time In",
                         "Time Out",
                         "Status",
                         "Worked Hours",
-                        "Late (min)",
-                        "Undertime (min)",
+                        "Late Hours",
+                        "Undertime Hours",
                         "Regular Hours",
                         "Overtime Hours"
                 },
@@ -102,18 +108,23 @@ public class AttendancePanel extends JPanel {
             }
         };
 
+        this.allEmployees = employeeRepository.findAll();
+        this.currentEmployeeRecords = new ArrayList<>();
+
+        setLayout(new BorderLayout());
+        setBackground(Theme.CONTENT_BACKGROUND);
+        setBorder(BorderFactory.createEmptyBorder(28, 28, 28, 28));
+
         buildUI();
-        populateYearOptions();
-        refreshMonthOptions();
-        loadAttendanceData();
+        initializeEmployeeSelection();
+        loadAttendanceForCurrentSelection();
     }
 
     /**
-     * Builds the panel layout.
+     * Builds the full Attendance panel UI.
      */
     private void buildUI() {
 
-        // Main wrapper for title + filters
         JPanel topWrapper = new JPanel();
         topWrapper.setLayout(new BoxLayout(topWrapper, BoxLayout.Y_AXIS));
         topWrapper.setBackground(Theme.CONTENT_BACKGROUND);
@@ -122,16 +133,98 @@ public class AttendancePanel extends JPanel {
         titleLabel.setFont(Theme.FONT_TITLE);
         titleLabel.setForeground(Theme.TEXT_PRIMARY);
 
-        JLabel subtitleLabel = new JLabel("View your monthly attendance summary and records.");
+        JLabel subtitleLabel = new JLabel("View employee attendance records and monthly summaries.");
         subtitleLabel.setFont(Theme.FONT_SUBTITLE);
         subtitleLabel.setForeground(Theme.TEXT_SECONDARY);
 
         topWrapper.add(titleLabel);
         topWrapper.add(Box.createRigidArea(new Dimension(0, 6)));
         topWrapper.add(subtitleLabel);
-        topWrapper.add(Box.createRigidArea(new Dimension(0, 20)));
+        topWrapper.add(Box.createRigidArea(new Dimension(0, 18)));
 
-        // Filter card
+        // Employee selector card
+        JPanel employeeCard = new JPanel();
+        employeeCard.setLayout(new BoxLayout(employeeCard, BoxLayout.Y_AXIS));
+        employeeCard.setBackground(Theme.CARD_BACKGROUND);
+        employeeCard.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Theme.BORDER_LIGHT),
+                BorderFactory.createEmptyBorder(16, 16, 16, 16)
+        ));
+
+        JLabel employeeSectionTitle = new JLabel("Employee Selection");
+        employeeSectionTitle.setFont(Theme.FONT_HEADING);
+        employeeSectionTitle.setForeground(Theme.TEXT_PRIMARY);
+
+        employeeCard.add(employeeSectionTitle);
+        employeeCard.add(Box.createRigidArea(new Dimension(0, 12)));
+
+        if (canViewOtherEmployees()) {
+            JPanel employeeFilterRow = new JPanel();
+            employeeFilterRow.setBackground(Theme.CARD_BACKGROUND);
+            employeeFilterRow.setLayout(new BoxLayout(employeeFilterRow, BoxLayout.X_AXIS));
+
+            JLabel searchLabel = new JLabel("Search:");
+            searchLabel.setFont(Theme.FONT_BODY);
+            searchLabel.setForeground(Theme.TEXT_PRIMARY);
+
+            employeeSearchField.setFont(Theme.FONT_BODY);
+            employeeSearchField.setMaximumSize(new Dimension(220, 34));
+            employeeSearchField.setPreferredSize(new Dimension(220, 34));
+
+            JButton searchButton = new JButton("Search");
+            searchButton.setFont(Theme.FONT_BUTTON);
+            searchButton.setBackground(Theme.PRIMARY);
+            searchButton.setForeground(java.awt.Color.WHITE);
+            searchButton.setFocusPainted(false);
+            searchButton.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
+
+            JLabel employeeLabel = new JLabel("Employee:");
+            employeeLabel.setFont(Theme.FONT_BODY);
+            employeeLabel.setForeground(Theme.TEXT_PRIMARY);
+
+            employeeComboBox.setFont(Theme.FONT_BODY);
+            employeeComboBox.setMaximumSize(new Dimension(320, 34));
+            employeeComboBox.setPreferredSize(new Dimension(320, 34));
+
+            employeeFilterRow.add(searchLabel);
+            employeeFilterRow.add(Box.createRigidArea(new Dimension(10, 0)));
+            employeeFilterRow.add(employeeSearchField);
+            employeeFilterRow.add(Box.createRigidArea(new Dimension(10, 0)));
+            employeeFilterRow.add(searchButton);
+            employeeFilterRow.add(Box.createRigidArea(new Dimension(20, 0)));
+            employeeFilterRow.add(employeeLabel);
+            employeeFilterRow.add(Box.createRigidArea(new Dimension(10, 0)));
+            employeeFilterRow.add(employeeComboBox);
+
+            employeeCard.add(employeeFilterRow);
+
+            searchButton.addActionListener(e -> filterEmployeeDropdown());
+
+            employeeComboBox.addActionListener(e -> {
+                populateYearOptions();
+                refreshMonthOptions();
+                loadAttendanceData();
+                updateSelectedEmployeeLabel();
+            });
+
+        } else {
+            // Employee and IT only see their own employee information
+            employeeSearchField.setVisible(false);
+            employeeComboBox.setVisible(false);
+
+            JLabel selfOnlyLabel = new JLabel(
+                    "<html><div style='width:500px;'>You can only view your own attendance records.</div></html>"
+            );
+            selfOnlyLabel.setFont(Theme.FONT_BODY);
+            selfOnlyLabel.setForeground(Theme.TEXT_SECONDARY);
+
+            employeeCard.add(selfOnlyLabel);
+        }
+
+        topWrapper.add(employeeCard);
+        topWrapper.add(Box.createRigidArea(new Dimension(0, 16)));
+
+        // Filter card for year/month
         JPanel filterCard = new JPanel(new BorderLayout());
         filterCard.setBackground(Theme.CARD_BACKGROUND);
         filterCard.setBorder(BorderFactory.createCompoundBorder(
@@ -178,7 +271,7 @@ public class AttendancePanel extends JPanel {
         filterCard.add(reloadButton, BorderLayout.EAST);
 
         topWrapper.add(filterCard);
-        topWrapper.add(Box.createRigidArea(new Dimension(0, 18)));
+        topWrapper.add(Box.createRigidArea(new Dimension(0, 16)));
 
         // Summary card
         JPanel summaryCard = new JPanel();
@@ -189,13 +282,15 @@ public class AttendancePanel extends JPanel {
         ));
         summaryCard.setLayout(new BoxLayout(summaryCard, BoxLayout.X_AXIS));
 
+        summaryCard.add(createSummaryItem("Employee", selectedEmployeeValueLabel));
+        summaryCard.add(Box.createRigidArea(new Dimension(20, 0)));
         summaryCard.add(createSummaryItem("Days with Logs", daysWithLogsValueLabel));
         summaryCard.add(Box.createRigidArea(new Dimension(20, 0)));
         summaryCard.add(createSummaryItem("Worked Hours", totalWorkedHoursValueLabel));
         summaryCard.add(Box.createRigidArea(new Dimension(20, 0)));
-        summaryCard.add(createSummaryItem("Late Minutes", totalLateMinutesValueLabel));
+        summaryCard.add(createSummaryItem("Late Hours", totalLateHoursValueLabel));
         summaryCard.add(Box.createRigidArea(new Dimension(20, 0)));
-        summaryCard.add(createSummaryItem("Undertime Minutes", totalUndertimeMinutesValueLabel));
+        summaryCard.add(createSummaryItem("Undertime Hours", totalUndertimeHoursValueLabel));
         summaryCard.add(Box.createRigidArea(new Dimension(20, 0)));
         summaryCard.add(createSummaryItem("Overtime Hours", totalOvertimeHoursValueLabel));
 
@@ -204,7 +299,7 @@ public class AttendancePanel extends JPanel {
 
         add(topWrapper, BorderLayout.NORTH);
 
-        // Table
+        // Real attendance table
         JTable attendanceTable = new JTable(tableModel);
         attendanceTable.setRowHeight(24);
         attendanceTable.setFont(Theme.FONT_BODY);
@@ -219,19 +314,18 @@ public class AttendancePanel extends JPanel {
 
         add(scrollPane, BorderLayout.CENTER);
 
-        // Listeners
+        // Events
         yearComboBox.addActionListener(e -> {
             refreshMonthOptions();
             loadAttendanceData();
         });
 
         monthComboBox.addActionListener(e -> loadAttendanceData());
-
-        reloadButton.addActionListener(e -> loadAttendanceData());
+        reloadButton.addActionListener(e -> loadAttendanceForCurrentSelection());
     }
 
     /**
-     * Creates one summary block.
+     * Creates a summary item block.
      */
     private JPanel createSummaryItem(String labelText, JLabel valueLabel) {
 
@@ -255,37 +349,124 @@ public class AttendancePanel extends JPanel {
     }
 
     /**
-     * Loads year options based on the actual employee attendance data.
+     * Initializes employee selection depending on role rules.
+     */
+    private void initializeEmployeeSelection() {
+
+        if (canViewOtherEmployees()) {
+            // HR, Admin, Supervisor can view other employees
+            populateEmployeeDropdown(allEmployees);
+
+            // Default to logged-in employee if available
+            selectEmployeeInDropdown(session.getEmployeeId());
+
+        } else {
+            // Employee and IT can only view their own records
+            Employee self = employeeRepository.findById(session.getEmployeeId());
+            List<Employee> selfOnly = new ArrayList<>();
+
+            if (self != null) {
+                selfOnly.add(self);
+            }
+
+            populateEmployeeDropdown(selfOnly);
+            selectEmployeeInDropdown(session.getEmployeeId());
+        }
+
+        updateSelectedEmployeeLabel();
+        populateYearOptions();
+        refreshMonthOptions();
+    }
+
+    /**
+     * Filters the employee dropdown based on search text.
+     */
+    private void filterEmployeeDropdown() {
+
+        String keyword = employeeSearchField.getText() == null
+                ? ""
+                : employeeSearchField.getText().trim().toLowerCase(Locale.ENGLISH);
+
+        List<Employee> filtered = new ArrayList<>();
+
+        for (Employee employee : allEmployees) {
+            String fullText = (employee.getEmployeeId() + " " + employee.getFullName() + " " + employee.getPosition())
+                    .toLowerCase(Locale.ENGLISH);
+
+            if (keyword.isEmpty() || fullText.contains(keyword)) {
+                filtered.add(employee);
+            }
+        }
+
+        populateEmployeeDropdown(filtered);
+    }
+
+    /**
+     * Loads the dropdown with employees.
+     */
+    private void populateEmployeeDropdown(List<Employee> employees) {
+        employeeComboBox.removeAllItems();
+
+        employees.sort(Comparator.comparing(Employee::getFullName));
+
+        for (Employee employee : employees) {
+            employeeComboBox.addItem(new EmployeeItem(employee));
+        }
+    }
+
+    /**
+     * Selects one employee in the dropdown by employee ID.
+     */
+    private void selectEmployeeInDropdown(String employeeId) {
+        for (int i = 0; i < employeeComboBox.getItemCount(); i++) {
+            EmployeeItem item = employeeComboBox.getItemAt(i);
+            if (item.getEmployee().getEmployeeId().equals(employeeId)) {
+                employeeComboBox.setSelectedIndex(i);
+                return;
+            }
+        }
+    }
+
+    /**
+     * Loads real records for the currently selected employee.
+     */
+    private void loadAttendanceForCurrentSelection() {
+        populateYearOptions();
+        refreshMonthOptions();
+        loadAttendanceData();
+        updateSelectedEmployeeLabel();
+    }
+
+    /**
+     * Loads year options from the currently selected employee.
      */
     private void populateYearOptions() {
         yearComboBox.removeAllItems();
 
+        currentEmployeeRecords = attendanceRepository.findByEmployeeId(getSelectedEmployeeId());
+
         List<Integer> years = new ArrayList<>();
 
-        for (AttendanceRecord record : allEmployeeRecords) {
+        for (AttendanceRecord record : currentEmployeeRecords) {
             int year = record.getDate().getYear();
             if (!years.contains(year)) {
                 years.add(year);
             }
         }
 
-        Collections.sort(years);
+        years.sort(Integer::compareTo);
 
         for (Integer year : years) {
             yearComboBox.addItem(year);
         }
 
-        // If no data exists, keep the combo empty
-        if (yearComboBox.getItemCount() == 0) {
-            return;
+        if (yearComboBox.getItemCount() > 0) {
+            yearComboBox.setSelectedIndex(yearComboBox.getItemCount() - 1);
         }
-
-        // Select the latest available year
-        yearComboBox.setSelectedIndex(yearComboBox.getItemCount() - 1);
     }
 
     /**
-     * Refreshes month options depending on the selected year.
+     * Loads month options based on selected year.
      */
     private void refreshMonthOptions() {
         monthComboBox.removeAllItems();
@@ -295,66 +476,63 @@ public class AttendancePanel extends JPanel {
             return;
         }
 
-        Map<Integer, MonthItem> availableMonths = new TreeMap<>();
+        List<Integer> availableMonths = new ArrayList<>();
 
-        for (AttendanceRecord record : allEmployeeRecords) {
+        for (AttendanceRecord record : currentEmployeeRecords) {
             if (record.getDate().getYear() == selectedYear) {
-                int monthNumber = record.getDate().getMonthValue();
-
-                if (!availableMonths.containsKey(monthNumber)) {
-                    availableMonths.put(monthNumber, new MonthItem(monthNumber));
+                int month = record.getDate().getMonthValue();
+                if (!availableMonths.contains(month)) {
+                    availableMonths.add(month);
                 }
             }
         }
 
-        for (MonthItem item : availableMonths.values()) {
-            monthComboBox.addItem(item);
+        availableMonths.sort(Integer::compareTo);
+
+        for (Integer monthNumber : availableMonths) {
+            monthComboBox.addItem(new MonthItem(monthNumber));
         }
 
-        // Auto-select the last available month
         if (monthComboBox.getItemCount() > 0) {
             monthComboBox.setSelectedIndex(monthComboBox.getItemCount() - 1);
         }
     }
 
     /**
-     * Loads attendance records for the selected year and month.
+     * Loads attendance table and summaries.
      */
     private void loadAttendanceData() {
-
-        // Clear existing rows first
         tableModel.setRowCount(0);
 
         Integer selectedYear = (Integer) yearComboBox.getSelectedItem();
         MonthItem selectedMonth = (MonthItem) monthComboBox.getSelectedItem();
 
-        // If there is no available selection, show zeros and stop
         if (selectedYear == null || selectedMonth == null) {
-            updateSummary(0, 0.0, 0, 0, 0.0);
+            updateSummary(0, 0.0, 0.0, 0.0, 0.0);
             return;
         }
 
         List<AttendanceRecord> records = attendanceRepository.findByEmployeeIdAndMonth(
-                session.getEmployeeId(),
+                getSelectedEmployeeId(),
                 selectedYear,
                 selectedMonth.getMonthNumber()
         );
 
         if (records.isEmpty()) {
-            updateSummary(0, 0.0, 0, 0, 0.0);
+            updateSummary(0, 0.0, 0.0, 0.0, 0.0);
             return;
         }
 
-        int totalLateMinutes = 0;
-        int totalUndertimeMinutes = 0;
         double totalWorkedHours = 0.0;
+        double totalLateHours = 0.0;
+        double totalUndertimeHours = 0.0;
         double totalOvertimeHours = 0.0;
 
         for (AttendanceRecord record : records) {
 
-            totalLateMinutes += record.getLateMinutesRounded();
-            totalUndertimeMinutes += record.getUndertimeMinutesRounded();
             totalWorkedHours += record.getWorkedHours();
+            totalLateHours += record.getLateHours();
+            totalUndertimeHours += record.getUndertimeHours();
             totalOvertimeHours += record.getOvertimeHours();
 
             tableModel.addRow(new Object[]{
@@ -363,8 +541,8 @@ public class AttendancePanel extends JPanel {
                     record.getTimeOut() == null ? "" : record.getTimeOut().format(TIME_FORMAT),
                     record.getDayStatus(),
                     HOURS_FORMAT.format(record.getWorkedHours()),
-                    record.getLateMinutesRounded(),
-                    record.getUndertimeMinutesRounded(),
+                    HOURS_FORMAT.format(record.getLateHours()),
+                    HOURS_FORMAT.format(record.getUndertimeHours()),
                     HOURS_FORMAT.format(record.getRegularHours()),
                     HOURS_FORMAT.format(record.getOvertimeHours())
             });
@@ -373,31 +551,93 @@ public class AttendancePanel extends JPanel {
         updateSummary(
                 records.size(),
                 totalWorkedHours,
-                totalLateMinutes,
-                totalUndertimeMinutes,
+                totalLateHours,
+                totalUndertimeHours,
                 totalOvertimeHours
         );
     }
 
     /**
-     * Updates the summary values shown above the table.
+     * Updates summary labels.
      */
     private void updateSummary(
             int daysWithLogs,
             double totalWorkedHours,
-            int totalLateMinutes,
-            int totalUndertimeMinutes,
+            double totalLateHours,
+            double totalUndertimeHours,
             double totalOvertimeHours
     ) {
         daysWithLogsValueLabel.setText(String.valueOf(daysWithLogs));
         totalWorkedHoursValueLabel.setText(HOURS_FORMAT.format(totalWorkedHours));
-        totalLateMinutesValueLabel.setText(String.valueOf(totalLateMinutes));
-        totalUndertimeMinutesValueLabel.setText(String.valueOf(totalUndertimeMinutes));
+        totalLateHoursValueLabel.setText(HOURS_FORMAT.format(totalLateHours));
+        totalUndertimeHoursValueLabel.setText(HOURS_FORMAT.format(totalUndertimeHours));
         totalOvertimeHoursValueLabel.setText(HOURS_FORMAT.format(totalOvertimeHours));
     }
 
     /**
-     * Small helper class for month combo box display.
+     * Updates selected employee summary label.
+     */
+    private void updateSelectedEmployeeLabel() {
+        EmployeeItem selectedItem = (EmployeeItem) employeeComboBox.getSelectedItem();
+
+        if (selectedItem == null) {
+            selectedEmployeeValueLabel.setText("-");
+            return;
+        }
+
+        selectedEmployeeValueLabel.setText(selectedItem.getEmployee().getEmployeeId());
+    }
+
+    /**
+     * Returns selected employee ID safely.
+     */
+    private String getSelectedEmployeeId() {
+        EmployeeItem selectedItem = (EmployeeItem) employeeComboBox.getSelectedItem();
+
+        if (selectedItem == null) {
+            return session.getEmployeeId();
+        }
+
+        return selectedItem.getEmployee().getEmployeeId();
+    }
+
+    /**
+     * Employee and IT can only view own attendance.
+     */
+    private boolean canViewOtherEmployees() {
+        String role = safeLower(session.getRole());
+        return role.contains("hr") || role.contains("admin") || role.contains("supervisor");
+    }
+
+    /**
+     * Lowercase helper with null safety.
+     */
+    private String safeLower(String text) {
+        return text == null ? "" : text.toLowerCase(Locale.ENGLISH);
+    }
+
+    /**
+     * Wrapper for employee dropdown display.
+     */
+    private static class EmployeeItem {
+        private final Employee employee;
+
+        public EmployeeItem(Employee employee) {
+            this.employee = employee;
+        }
+
+        public Employee getEmployee() {
+            return employee;
+        }
+
+        @Override
+        public String toString() {
+            return employee.getEmployeeId() + " - " + employee.getFullName();
+        }
+    }
+
+    /**
+     * Wrapper for month dropdown display.
      */
     private static class MonthItem {
         private final int monthNumber;
@@ -412,8 +652,12 @@ public class AttendancePanel extends JPanel {
 
         @Override
         public String toString() {
-            return monthNumber + " - " + Month.of(monthNumber).name().substring(0, 1)
-                    + Month.of(monthNumber).name().substring(1).toLowerCase();
+            return monthNumber + " - " + formatMonthName(monthNumber);
+        }
+
+        private static String formatMonthName(int monthNumber) {
+            String raw = Month.of(monthNumber).name().toLowerCase(Locale.ENGLISH);
+            return raw.substring(0, 1).toUpperCase(Locale.ENGLISH) + raw.substring(1);
         }
     }
 }
