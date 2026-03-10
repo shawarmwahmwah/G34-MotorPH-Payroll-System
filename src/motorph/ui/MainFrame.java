@@ -9,6 +9,7 @@ import motorph.ui.panel.LeaveApprovalPanel;
 import motorph.ui.panel.LeavePanel;
 import motorph.ui.panel.PayrollPanel;
 import motorph.ui.session.UserSession;
+import motorph.ui.panel.AttendanceAdjustmentPanel;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -43,6 +44,7 @@ public class MainFrame extends JFrame {
     public static final String PANEL_ATTENDANCE = "ATTENDANCE";
     public static final String PANEL_LEAVE = "LEAVE";
     public static final String PANEL_LEAVE_APPROVALS = "LEAVE_APPROVALS";
+    public static final String PANEL_ATTENDANCE_ADJUSTMENTS = "ATTENDANCE_ADJUSTMENTS";
 
     public MainFrame(UserSession session) {
         this.session = session;
@@ -100,7 +102,8 @@ public class MainFrame extends JFrame {
         SidebarButton attendanceButton = createNavButton("Attendance", PANEL_ATTENDANCE);
         SidebarButton leaveButton = createNavButton("Leave", PANEL_LEAVE);
         SidebarButton approvalsButton = createNavButton("Leave Approvals", PANEL_LEAVE_APPROVALS);
-
+        SidebarButton attendanceAdjustmentsButton = createNavButton("Attendance Adjustments", PANEL_ATTENDANCE_ADJUSTMENTS);
+        
         navPanel.add(dashboardButton);
         navPanel.add(Box.createRigidArea(new Dimension(0, 10)));
 
@@ -113,6 +116,14 @@ public class MainFrame extends JFrame {
         navPanel.add(Box.createRigidArea(new Dimension(0, 10)));
         navPanel.add(attendanceButton);
         navPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+        navPanel.add(leaveButton);
+        navPanel.add(attendanceButton); //eto yong attendance button natin
+        navPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+        if (canSeeAttendanceAdjustmentModule()) {
+            navPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+            navPanel.add(attendanceAdjustmentsButton);
+        }
+        
         navPanel.add(leaveButton);
 
         navPanel.add(Box.createVerticalGlue());
@@ -152,6 +163,7 @@ public class MainFrame extends JFrame {
         contentPanel.add(new AttendancePanel(session), PANEL_ATTENDANCE);
         contentPanel.add(new LeavePanel(), PANEL_LEAVE);
         contentPanel.add(new LeaveApprovalPanel(), PANEL_LEAVE_APPROVALS);
+        contentPanel.add(new AttendanceAdjustmentPanel(session), PANEL_ATTENDANCE_ADJUSTMENTS);
     }
 
     /**
@@ -216,6 +228,12 @@ public class MainFrame extends JFrame {
         String role = safeLower(session.getRole());
         return role.contains("admin")
                 || role.contains("hr")
+                || role.contains("supervisor");
+    }
+    private boolean canSeeAttendanceAdjustmentModule() {
+        String role = safeLower(session.getRole());
+        return role.contains("hr")
+                || role.contains("admin")
                 || role.contains("supervisor");
     }
 

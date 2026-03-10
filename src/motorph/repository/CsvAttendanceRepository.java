@@ -36,70 +36,82 @@ public class CsvAttendanceRepository implements AttendanceRepository {
         return loadRecords(employeeId, year, month);
     }
 
+    @Override
+    public AttendanceRecord findByEmployeeIdAndDate(String employeeId, LocalDate date) {
+        List<AttendanceRecord> records = loadRecords(employeeId, null, null);
+
+        for (AttendanceRecord record : records) {
+            if (record.getDate().equals(date)) {
+                return record;
+            }
+        }
+
+        return null;
+    }
+
     private List<AttendanceRecord> loadRecords(String employeeId, Integer year, Integer month) {
 
         List<AttendanceRecord> out = new ArrayList<>();
 
         try (BufferedReader br = new BufferedReader(new FileReader(attendanceFile.toFile()))) {
 
-            // skip header
             String header = br.readLine();
-            if (header == null) return out;
+            if (header == null) {
+                return out;
+            }
 
             String line;
             while ((line = br.readLine()) != null) {
 
-                if (line.trim().isEmpty()) continue;
+                if (line.trim().isEmpty()) {
+                    continue;
+                }
 
                 List<String> p = CsvUtil.splitCsvLine(line);
-                if (p.size() < 6) continue;
+                if (p.size() < 6) {
+                    continue;
+                }
 
                 String id = p.get(0).trim();
-                if (!id.equals(employeeId)) continue;
+                if (!id.equals(employeeId)) {
+                    continue;
+                }
 
                 String lastName = p.get(1).trim();
                 String firstName = p.get(2).trim();
 
-                LocalDate date = LocalDate.parse(p.get(3).trim(), DATE_FMT);
+                LocalDate parsedDate = LocalDate.parse(p.get(3).trim(), DATE_FMT);
 
-                // If filtering by year/month, apply filter
                 if (year != null && month != null) {
-                    if (date.getYear() != year || date.getMonthValue() != month) continue;
+                    if (parsedDate.getYear() != year || parsedDate.getMonthValue() != month) {
+                        continue;
+                    }
                 }
 
-                // Parse time in/out
                 var timeIn = TimeUtil.parseTime(p.get(4));
                 var timeOut = TimeUtil.parseTime(p.get(5));
 
-                // Compute late + worked + regular + overtime
-             // Compute day status first (NORMAL or HALF_DAY_PM)
                 String dayStatus = calculator.computeDayStatus(timeIn);
-
-                // Compute worked minutes (minus lunch overlap)
                 int workedMinutes = calculator.computeWorkedMinutesMinusLunch(timeIn, timeOut);
-
-                // Compute late (rounded, morning only)
                 int lateMinutesRounded = calculator.computeLateMinutesRounded(timeIn);
+                int undertimeMinutesRounded = calculator.computeUndertimeMinutesRounded(parsedDate, timeOut, dayStatus);
+                int overtimeMinutesRounded = calculator.computeOvertimeMinutesRounded(parsedDate, timeOut, workedMinutes);
 
-                // Compute undertime (rounded)
-                int undertimeMinutesRounded = calculator.computeUndertimeMinutesRounded(date, timeOut, dayStatus);
-
-                // Compute overtime (rounded) - includes weekend rule
-                int overtimeMinutesRounded = calculator.computeOvertimeMinutesRounded(date, timeOut, workedMinutes);
-
-                // Compute regular minutes (paid)
                 int regularMinutes = calculator.computeRegularMinutes(
-                        date,
+                        parsedDate,
                         workedMinutes,
                         lateMinutesRounded,
                         undertimeMinutesRounded,
                         dayStatus
                 );
 
-                // Build record
                 AttendanceRecord rec = new AttendanceRecord(
-                        id, lastName, firstName,
-                        date, timeIn, timeOut,
+                        id,
+                        lastName,
+                        firstName,
+                        parsedDate,
+                        timeIn,
+                        timeOut,
                         workedMinutes,
                         lateMinutesRounded,
                         undertimeMinutesRounded,

@@ -52,7 +52,7 @@ public class UserProfilePanel extends JPanel {
         positionLabel.setForeground(Theme.TEXT_SECONDARY);
         positionLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        JLabel roleLabel = new JLabel("Role: " + session.getRole());
+        JLabel roleLabel = new JLabel("Role: " + formatRole(session.getRole()));
         roleLabel.setFont(Theme.FONT_SMALL);
         roleLabel.setForeground(new Color(90, 90, 90));
         roleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -86,5 +86,35 @@ public class UserProfilePanel extends JPanel {
         }
 
         return "<html><div style='text-align:center; width:180px;'>" + safeText + "</div></html>";
+    }
+
+    private String formatRole(String role) {
+        if (role == null || role.trim().isEmpty()) {
+            return "";
+        }
+
+        String value = role.trim().toLowerCase();
+
+        if (value.equals("hr")) {
+            return "HR";
+        }
+
+        if (value.equals("it")) {
+            return "IT";
+        }
+
+        if (value.equals("admin")) {
+            return "Admin";
+        }
+
+        if (value.equals("supervisor")) {
+            return "Supervisor";
+        }
+
+        if (value.equals("employee")) {
+            return "Employee";
+        }
+
+        return value.substring(0, 1).toUpperCase() + value.substring(1);
     }
 }
