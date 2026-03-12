@@ -1,11 +1,13 @@
 package motorph.ui.panel;
 
+import motorph.model.AttendanceAdjustmentRequest;
 import motorph.model.AttendanceRecord;
 import motorph.model.Employee;
 import motorph.repository.AttendanceRepository;
 import motorph.repository.CsvAttendanceRepository;
 import motorph.repository.CsvEmployeeRepository;
 import motorph.repository.EmployeeRepository;
+import motorph.service.AttendanceAdjustmentService;
 import motorph.ui.Theme;
 import motorph.ui.session.UserSession;
 
@@ -15,30 +17,42 @@ import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
+import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.JSpinner;
+import javax.swing.SpinnerDateModel;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
+import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.GridLayout;
 import java.text.DecimalFormat;
+import java.text.SimpleDateFormat;
 import java.time.Month;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
 /**
  * AttendancePanel
  *
- * Real attendance module panel with role-based viewing rules:
- * - Employee and IT can only view their own attendance
- * - HR, Admin, and Supervisor can view other employees' attendance
- *
- * Late and undertime are displayed in hours using 0.25 increments,
- * based on the already-rounded 15-minute backend logic.
+ * Compact attendance view with embedded adjustment section.
+ * - Employee / IT: own attendance only
+ * - HR / Admin / Supervisor: can view other employees
+ * - HR / Admin / Supervisor: can open embedded adjustment section
+ * - HR: can submit adjustment requests
+ * - Admin: can approve/reject requests
+ * - Supervisor: view adjustment requests only
  */
 public class AttendancePanel extends JPanel {
 
@@ -47,6 +61,7 @@ public class AttendancePanel extends JPanel {
     private final UserSession session;
     private final AttendanceRepository attendanceRepository;
     private final EmployeeRepository employeeRepository;
+    private final AttendanceAdjustmentService adjustmentService;
 
     private final JTextField employeeSearchField;
     private final JComboBox<EmployeeItem> employeeComboBox;
@@ -60,7 +75,22 @@ public class AttendancePanel extends JPanel {
     private final JLabel totalUndertimeHoursValueLabel;
     private final JLabel totalOvertimeHoursValueLabel;
 
-    private final DefaultTableModel tableModel;
+    private final DefaultTableModel attendanceTableModel;
+    private final DefaultTableModel adjustmentTableModel;
+
+    private final JPanel adjustmentContainer;
+    private final CardLayout adjustmentCardLayout;
+    private static final String ADJUSTMENT_HIDDEN = "HIDDEN";
+    private static final String ADJUSTMENT_VISIBLE = "VISIBLE";
+    private boolean adjustmentVisible = false;
+
+    // Embedded adjustment form fields
+    private final JComboBox<EmployeeItem> adjustmentEmployeeComboBox;
+    private final JSpinner adjustmentDateSpinner;
+    private final JSpinner proposedTimeInSpinner;
+    private final JSpinner proposedTimeOutSpinner;
+    private final JTextArea adjustmentReasonArea;
+    private final JTextField adjustmentRemarksField;
 
     private List<Employee> allEmployees;
     private List<AttendanceRecord> currentEmployeeRecords;
@@ -73,6 +103,7 @@ public class AttendancePanel extends JPanel {
         this.session = session;
         this.attendanceRepository = new CsvAttendanceRepository();
         this.employeeRepository = new CsvEmployeeRepository();
+        this.adjustmentService = new AttendanceAdjustmentService();
 
         this.employeeSearchField = new JTextField();
         this.employeeComboBox = new JComboBox<>();
@@ -86,7 +117,7 @@ public class AttendancePanel extends JPanel {
         this.totalUndertimeHoursValueLabel = new JLabel("0.00");
         this.totalOvertimeHoursValueLabel = new JLabel("0.00");
 
-        this.tableModel = new DefaultTableModel(
+        this.attendanceTableModel = new DefaultTableModel(
                 new Object[]{
                         "Date",
                         "Time In",
@@ -108,16 +139,51 @@ public class AttendancePanel extends JPanel {
             }
         };
 
+        this.adjustmentTableModel = new DefaultTableModel(
+                new Object[]{
+                        "Request ID",
+                        "Employee ID",
+                        "Employee Name",
+                        "Date",
+                        "Current In",
+                        "Current Out",
+                        "Proposed In",
+                        "Proposed Out",
+                        "Requested By",
+                        "Status"
+                },
+                0
+        ) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+
+        this.adjustmentEmployeeComboBox = new JComboBox<>();
+        this.adjustmentDateSpinner = new JSpinner(new SpinnerDateModel());
+        this.proposedTimeInSpinner = new JSpinner(new SpinnerDateModel());
+        this.proposedTimeOutSpinner = new JSpinner(new SpinnerDateModel());
+        this.adjustmentReasonArea = new JTextArea(4, 20);
+        this.adjustmentRemarksField = new JTextField();
+
+        this.adjustmentCardLayout = new CardLayout();
+        this.adjustmentContainer = new JPanel(adjustmentCardLayout);
+
         this.allEmployees = employeeRepository.findAll();
         this.currentEmployeeRecords = new ArrayList<>();
 
         setLayout(new BorderLayout());
         setBackground(Theme.CONTENT_BACKGROUND);
-        setBorder(BorderFactory.createEmptyBorder(28, 28, 28, 28));
+        setBorder(BorderFactory.createEmptyBorder(24, 24, 24, 24));
 
         buildUI();
         initializeEmployeeSelection();
         loadAttendanceForCurrentSelection();
+        loadAdjustmentEmployeeDropdown();
+        loadAdjustmentTable();
     }
 
     /**
@@ -125,78 +191,90 @@ public class AttendancePanel extends JPanel {
      */
     private void buildUI() {
 
-        JPanel topWrapper = new JPanel();
-        topWrapper.setLayout(new BoxLayout(topWrapper, BoxLayout.Y_AXIS));
-        topWrapper.setBackground(Theme.CONTENT_BACKGROUND);
+        JPanel wrapper = new JPanel();
+        wrapper.setLayout(new BoxLayout(wrapper, BoxLayout.Y_AXIS));
+        wrapper.setBackground(Theme.CONTENT_BACKGROUND);
 
         JLabel titleLabel = new JLabel("Attendance");
         titleLabel.setFont(Theme.FONT_TITLE);
         titleLabel.setForeground(Theme.TEXT_PRIMARY);
+        titleLabel.setAlignmentX(LEFT_ALIGNMENT);
 
         JLabel subtitleLabel = new JLabel("View employee attendance records and monthly summaries.");
         subtitleLabel.setFont(Theme.FONT_SUBTITLE);
         subtitleLabel.setForeground(Theme.TEXT_SECONDARY);
+        subtitleLabel.setAlignmentX(LEFT_ALIGNMENT);
 
-        topWrapper.add(titleLabel);
-        topWrapper.add(Box.createRigidArea(new Dimension(0, 6)));
-        topWrapper.add(subtitleLabel);
-        topWrapper.add(Box.createRigidArea(new Dimension(0, 18)));
+        wrapper.add(titleLabel);
+        wrapper.add(Box.createRigidArea(new Dimension(0, 6)));
+        wrapper.add(subtitleLabel);
+        wrapper.add(Box.createRigidArea(new Dimension(0, 18)));
 
-        // Employee selector card
-        JPanel employeeCard = new JPanel();
-        employeeCard.setLayout(new BoxLayout(employeeCard, BoxLayout.Y_AXIS));
-        employeeCard.setBackground(Theme.CARD_BACKGROUND);
-        employeeCard.setBorder(BorderFactory.createCompoundBorder(
+        // Top compact toolbar card
+        JPanel toolbarCard = new JPanel();
+        toolbarCard.setLayout(new BoxLayout(toolbarCard, BoxLayout.Y_AXIS));
+        toolbarCard.setBackground(Theme.CARD_BACKGROUND);
+        toolbarCard.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Theme.BORDER_LIGHT),
                 BorderFactory.createEmptyBorder(16, 16, 16, 16)
         ));
+        toolbarCard.setAlignmentX(LEFT_ALIGNMENT);
+        toolbarCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 150));
 
-        JLabel employeeSectionTitle = new JLabel("Employee Selection");
-        employeeSectionTitle.setFont(Theme.FONT_HEADING);
-        employeeSectionTitle.setForeground(Theme.TEXT_PRIMARY);
+        // Row 1: employee area
+        JPanel employeeRow = new JPanel(new GridBagLayout());
+        employeeRow.setBackground(Theme.CARD_BACKGROUND);
+        employeeRow.setAlignmentX(LEFT_ALIGNMENT);
 
-        employeeCard.add(employeeSectionTitle);
-        employeeCard.add(Box.createRigidArea(new Dimension(0, 12)));
+        GridBagConstraints gbcEmp = new GridBagConstraints();
+        gbcEmp.insets = new java.awt.Insets(4, 4, 4, 12);
+        gbcEmp.anchor = GridBagConstraints.WEST;
+        gbcEmp.fill = GridBagConstraints.HORIZONTAL;
+        gbcEmp.gridy = 0;
 
         if (canViewOtherEmployees()) {
-            JPanel employeeFilterRow = new JPanel();
-            employeeFilterRow.setBackground(Theme.CARD_BACKGROUND);
-            employeeFilterRow.setLayout(new BoxLayout(employeeFilterRow, BoxLayout.X_AXIS));
-
             JLabel searchLabel = new JLabel("Search:");
             searchLabel.setFont(Theme.FONT_BODY);
             searchLabel.setForeground(Theme.TEXT_PRIMARY);
 
             employeeSearchField.setFont(Theme.FONT_BODY);
-            employeeSearchField.setMaximumSize(new Dimension(220, 34));
             employeeSearchField.setPreferredSize(new Dimension(220, 34));
+            employeeSearchField.setMaximumSize(new Dimension(220, 34));
 
             JButton searchButton = new JButton("Search");
             searchButton.setFont(Theme.FONT_BUTTON);
             searchButton.setBackground(Theme.PRIMARY);
-            searchButton.setForeground(java.awt.Color.WHITE);
+            searchButton.setForeground(Color.WHITE);
             searchButton.setFocusPainted(false);
-            searchButton.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
+            searchButton.setPreferredSize(new Dimension(110, 36));
 
             JLabel employeeLabel = new JLabel("Employee:");
             employeeLabel.setFont(Theme.FONT_BODY);
             employeeLabel.setForeground(Theme.TEXT_PRIMARY);
 
             employeeComboBox.setFont(Theme.FONT_BODY);
-            employeeComboBox.setMaximumSize(new Dimension(320, 34));
-            employeeComboBox.setPreferredSize(new Dimension(320, 34));
+            employeeComboBox.setPreferredSize(new Dimension(360, 34));
+            employeeComboBox.setMaximumSize(new Dimension(360, 34));
 
-            employeeFilterRow.add(searchLabel);
-            employeeFilterRow.add(Box.createRigidArea(new Dimension(10, 0)));
-            employeeFilterRow.add(employeeSearchField);
-            employeeFilterRow.add(Box.createRigidArea(new Dimension(10, 0)));
-            employeeFilterRow.add(searchButton);
-            employeeFilterRow.add(Box.createRigidArea(new Dimension(20, 0)));
-            employeeFilterRow.add(employeeLabel);
-            employeeFilterRow.add(Box.createRigidArea(new Dimension(10, 0)));
-            employeeFilterRow.add(employeeComboBox);
+            gbcEmp.gridx = 0;
+            gbcEmp.weightx = 0;
+            employeeRow.add(searchLabel, gbcEmp);
 
-            employeeCard.add(employeeFilterRow);
+            gbcEmp.gridx = 1;
+            gbcEmp.weightx = 0.25;
+            employeeRow.add(employeeSearchField, gbcEmp);
+
+            gbcEmp.gridx = 2;
+            gbcEmp.weightx = 0;
+            employeeRow.add(searchButton, gbcEmp);
+
+            gbcEmp.gridx = 3;
+            gbcEmp.weightx = 0;
+            employeeRow.add(employeeLabel, gbcEmp);
+
+            gbcEmp.gridx = 4;
+            gbcEmp.weightx = 0.45;
+            employeeRow.add(employeeComboBox, gbcEmp);
 
             searchButton.addActionListener(e -> filterEmployeeDropdown());
 
@@ -208,29 +286,26 @@ public class AttendancePanel extends JPanel {
             });
 
         } else {
-            // Employee and IT only see their own employee information
-            employeeSearchField.setVisible(false);
-            employeeComboBox.setVisible(false);
-
-            JLabel selfOnlyLabel = new JLabel(
-                    "<html><div style='width:500px;'>You can only view your own attendance records.</div></html>"
-            );
+            JLabel selfOnlyLabel = new JLabel("You can only view your own attendance records.");
             selfOnlyLabel.setFont(Theme.FONT_BODY);
             selfOnlyLabel.setForeground(Theme.TEXT_SECONDARY);
 
-            employeeCard.add(selfOnlyLabel);
+            gbcEmp.gridx = 0;
+            gbcEmp.weightx = 1.0;
+            employeeRow.add(selfOnlyLabel, gbcEmp);
+
+            Employee self = employeeRepository.findById(session.getEmployeeId());
+            employeeComboBox.removeAllItems();
+            if (self != null) {
+                employeeComboBox.addItem(new EmployeeItem(self));
+                employeeComboBox.setSelectedIndex(0);
+            }
         }
 
-        topWrapper.add(employeeCard);
-        topWrapper.add(Box.createRigidArea(new Dimension(0, 16)));
-
-        // Filter card for year/month
-        JPanel filterCard = new JPanel(new BorderLayout());
-        filterCard.setBackground(Theme.CARD_BACKGROUND);
-        filterCard.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(Theme.BORDER_LIGHT),
-                BorderFactory.createEmptyBorder(16, 16, 16, 16)
-        ));
+        // Row 2: filters and actions
+        JPanel filterRow = new JPanel(new BorderLayout());
+        filterRow.setBackground(Theme.CARD_BACKGROUND);
+        filterRow.setAlignmentX(LEFT_ALIGNMENT);
 
         JPanel filterLeft = new JPanel();
         filterLeft.setBackground(Theme.CARD_BACKGROUND);
@@ -249,15 +324,8 @@ public class AttendancePanel extends JPanel {
         yearComboBox.setMaximumSize(new Dimension(120, 34));
 
         monthComboBox.setFont(Theme.FONT_BODY);
-        monthComboBox.setPreferredSize(new Dimension(180, 34));
-        monthComboBox.setMaximumSize(new Dimension(180, 34));
-
-        JButton reloadButton = new JButton("Load Attendance");
-        reloadButton.setFont(Theme.FONT_BUTTON);
-        reloadButton.setBackground(Theme.PRIMARY);
-        reloadButton.setForeground(java.awt.Color.WHITE);
-        reloadButton.setFocusPainted(false);
-        reloadButton.setBorder(BorderFactory.createEmptyBorder(10, 16, 10, 16));
+        monthComboBox.setPreferredSize(new Dimension(190, 34));
+        monthComboBox.setMaximumSize(new Dimension(190, 34));
 
         filterLeft.add(yearLabel);
         filterLeft.add(Box.createRigidArea(new Dimension(10, 0)));
@@ -267,52 +335,109 @@ public class AttendancePanel extends JPanel {
         filterLeft.add(Box.createRigidArea(new Dimension(10, 0)));
         filterLeft.add(monthComboBox);
 
-        filterCard.add(filterLeft, BorderLayout.WEST);
-        filterCard.add(reloadButton, BorderLayout.EAST);
+        JPanel filterRight = new JPanel();
+        filterRight.setBackground(Theme.CARD_BACKGROUND);
+        filterRight.setLayout(new BoxLayout(filterRight, BoxLayout.X_AXIS));
 
-        topWrapper.add(filterCard);
-        topWrapper.add(Box.createRigidArea(new Dimension(0, 16)));
+        JButton adjustAttendanceButton = new JButton("Adjust Attendance");
+        adjustAttendanceButton.setFont(Theme.FONT_BUTTON);
+        adjustAttendanceButton.setBackground(Theme.PRIMARY);
+        adjustAttendanceButton.setForeground(Color.WHITE);
+        adjustAttendanceButton.setFocusPainted(false);
+        adjustAttendanceButton.setPreferredSize(new Dimension(170, 40));
+        adjustAttendanceButton.setMinimumSize(new Dimension(170, 40));
+        adjustAttendanceButton.setMaximumSize(new Dimension(170, 40));
+
+        JButton reloadButton = new JButton("Load Attendance");
+        reloadButton.setFont(Theme.FONT_BUTTON);
+        reloadButton.setBackground(Theme.PRIMARY);
+        reloadButton.setForeground(Color.WHITE);
+        reloadButton.setFocusPainted(false);
+        reloadButton.setPreferredSize(new Dimension(170, 40));
+        reloadButton.setMinimumSize(new Dimension(170, 40));
+        reloadButton.setMaximumSize(new Dimension(170, 40));
+
+        if (canAdjustAttendance()) {
+            filterRight.add(adjustAttendanceButton);
+            filterRight.add(Box.createRigidArea(new Dimension(10, 0)));
+        }
+
+        filterRight.add(reloadButton);
+
+        filterRow.add(filterLeft, BorderLayout.WEST);
+        filterRow.add(filterRight, BorderLayout.EAST);
+
+        toolbarCard.add(employeeRow);
+        toolbarCard.add(Box.createRigidArea(new Dimension(0, 10)));
+        toolbarCard.add(filterRow);
+
+        wrapper.add(toolbarCard);
+        wrapper.add(Box.createRigidArea(new Dimension(0, 16)));
+
+        // Embedded adjustment section
+        adjustmentContainer.setBackground(Theme.CONTENT_BACKGROUND);
+        adjustmentContainer.setAlignmentX(LEFT_ALIGNMENT);
+
+        JPanel hiddenPanel = new JPanel();
+        hiddenPanel.setBackground(Theme.CONTENT_BACKGROUND);
+
+        JPanel visiblePanel = buildEmbeddedAdjustmentSection();
+
+        adjustmentContainer.add(hiddenPanel, ADJUSTMENT_HIDDEN);
+        adjustmentContainer.add(visiblePanel, ADJUSTMENT_VISIBLE);
+        adjustmentCardLayout.show(adjustmentContainer, ADJUSTMENT_HIDDEN);
+
+        wrapper.add(adjustmentContainer);
+        wrapper.add(Box.createRigidArea(new Dimension(0, 16)));
 
         // Summary card
-        JPanel summaryCard = new JPanel();
+        JPanel summaryCard = new JPanel(new GridLayout(1, 6, 14, 0));
         summaryCard.setBackground(Theme.CARD_BACKGROUND);
         summaryCard.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Theme.BORDER_LIGHT),
                 BorderFactory.createEmptyBorder(16, 16, 16, 16)
         ));
-        summaryCard.setLayout(new BoxLayout(summaryCard, BoxLayout.X_AXIS));
+        summaryCard.setAlignmentX(LEFT_ALIGNMENT);
+        summaryCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 100));
 
         summaryCard.add(createSummaryItem("Employee", selectedEmployeeValueLabel));
-        summaryCard.add(Box.createRigidArea(new Dimension(20, 0)));
         summaryCard.add(createSummaryItem("Days with Logs", daysWithLogsValueLabel));
-        summaryCard.add(Box.createRigidArea(new Dimension(20, 0)));
         summaryCard.add(createSummaryItem("Worked Hours", totalWorkedHoursValueLabel));
-        summaryCard.add(Box.createRigidArea(new Dimension(20, 0)));
         summaryCard.add(createSummaryItem("Late Hours", totalLateHoursValueLabel));
-        summaryCard.add(Box.createRigidArea(new Dimension(20, 0)));
         summaryCard.add(createSummaryItem("Undertime Hours", totalUndertimeHoursValueLabel));
-        summaryCard.add(Box.createRigidArea(new Dimension(20, 0)));
         summaryCard.add(createSummaryItem("Overtime Hours", totalOvertimeHoursValueLabel));
 
-        topWrapper.add(summaryCard);
-        topWrapper.add(Box.createRigidArea(new Dimension(0, 18)));
+        wrapper.add(summaryCard);
+        wrapper.add(Box.createRigidArea(new Dimension(0, 16)));
 
-        add(topWrapper, BorderLayout.NORTH);
-
-        // Real attendance table
-        JTable attendanceTable = new JTable(tableModel);
-        attendanceTable.setRowHeight(24);
-        attendanceTable.setFont(Theme.FONT_BODY);
-        attendanceTable.getTableHeader().setFont(Theme.FONT_BUTTON);
-        attendanceTable.setFillsViewportHeight(true);
-
-        JScrollPane scrollPane = new JScrollPane(attendanceTable);
-        scrollPane.setBorder(BorderFactory.createCompoundBorder(
+        // Attendance table card
+        JPanel tableCard = new JPanel(new BorderLayout());
+        tableCard.setBackground(Theme.CARD_BACKGROUND);
+        tableCard.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Theme.BORDER_LIGHT),
                 BorderFactory.createEmptyBorder(0, 0, 0, 0)
         ));
+        tableCard.setAlignmentX(LEFT_ALIGNMENT);
 
-        add(scrollPane, BorderLayout.CENTER);
+        JTable attendanceTable = new JTable(attendanceTableModel);
+        attendanceTable.setRowHeight(28);
+        attendanceTable.setFont(Theme.FONT_BODY);
+        attendanceTable.getTableHeader().setFont(Theme.FONT_BUTTON);
+        attendanceTable.setFillsViewportHeight(true);
+        attendanceTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+
+        JScrollPane attendanceScrollPane = new JScrollPane(attendanceTable);
+        attendanceScrollPane.setPreferredSize(new Dimension(1000, 360));
+
+        tableCard.add(attendanceScrollPane, BorderLayout.CENTER);
+
+        wrapper.add(tableCard);
+
+        JScrollPane pageScrollPane = new JScrollPane(wrapper);
+        pageScrollPane.setBorder(null);
+        pageScrollPane.getVerticalScrollBar().setUnitIncrement(16);
+
+        add(pageScrollPane, BorderLayout.CENTER);
 
         // Events
         yearComboBox.addActionListener(e -> {
@@ -322,10 +447,240 @@ public class AttendancePanel extends JPanel {
 
         monthComboBox.addActionListener(e -> loadAttendanceData());
         reloadButton.addActionListener(e -> loadAttendanceForCurrentSelection());
+
+        if (canAdjustAttendance()) {
+            adjustAttendanceButton.addActionListener(e -> toggleAdjustmentSection());
+        }
     }
 
     /**
-     * Creates a summary item block.
+     * Embedded adjustment section shown inside Attendance page.
+     */
+    private JPanel buildEmbeddedAdjustmentSection() {
+
+        JPanel sectionWrapper = new JPanel();
+        sectionWrapper.setLayout(new BoxLayout(sectionWrapper, BoxLayout.Y_AXIS));
+        sectionWrapper.setBackground(Theme.CONTENT_BACKGROUND);
+        sectionWrapper.setAlignmentX(LEFT_ALIGNMENT);
+
+        JPanel formCard = new JPanel();
+        formCard.setLayout(new BoxLayout(formCard, BoxLayout.Y_AXIS));
+        formCard.setBackground(Theme.CARD_BACKGROUND);
+        formCard.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Theme.BORDER_LIGHT),
+                BorderFactory.createEmptyBorder(16, 16, 16, 16)
+        ));
+        formCard.setAlignmentX(LEFT_ALIGNMENT);
+        formCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 320));
+
+        JLabel heading = new JLabel("Attendance Adjustment");
+        heading.setFont(Theme.FONT_HEADING);
+        heading.setForeground(Theme.TEXT_PRIMARY);
+        heading.setAlignmentX(LEFT_ALIGNMENT);
+
+        JPanel row1 = new JPanel(new GridBagLayout());
+        row1.setBackground(Theme.CARD_BACKGROUND);
+        row1.setAlignmentX(LEFT_ALIGNMENT);
+
+        GridBagConstraints gbc1 = new GridBagConstraints();
+        gbc1.insets = new java.awt.Insets(4, 4, 4, 12);
+        gbc1.anchor = GridBagConstraints.WEST;
+        gbc1.fill = GridBagConstraints.HORIZONTAL;
+
+        JLabel employeeLabel = new JLabel("Employee:");
+        employeeLabel.setFont(Theme.FONT_BODY);
+
+        adjustmentEmployeeComboBox.setFont(Theme.FONT_BODY);
+        adjustmentEmployeeComboBox.setPreferredSize(new Dimension(360, 34));
+        adjustmentEmployeeComboBox.setMaximumSize(new Dimension(360, 34));
+
+        JLabel dateLabel = new JLabel("Date:");
+        dateLabel.setFont(Theme.FONT_BODY);
+
+        adjustmentDateSpinner.setFont(Theme.FONT_BODY);
+        adjustmentDateSpinner.setPreferredSize(new Dimension(170, 34));
+        adjustmentDateSpinner.setMaximumSize(new Dimension(170, 34));
+        JSpinner.DateEditor dateEditor = new JSpinner.DateEditor(adjustmentDateSpinner, "yyyy-MM-dd");
+        adjustmentDateSpinner.setEditor(dateEditor);
+
+        gbc1.gridx = 0;
+        gbc1.gridy = 0;
+        gbc1.weightx = 0;
+        row1.add(employeeLabel, gbc1);
+
+        gbc1.gridx = 1;
+        gbc1.weightx = 1.0;
+        row1.add(adjustmentEmployeeComboBox, gbc1);
+
+        gbc1.gridx = 2;
+        gbc1.weightx = 0;
+        row1.add(dateLabel, gbc1);
+
+        gbc1.gridx = 3;
+        gbc1.weightx = 0.35;
+        row1.add(adjustmentDateSpinner, gbc1);
+
+        JPanel row2 = new JPanel(new GridBagLayout());
+        row2.setBackground(Theme.CARD_BACKGROUND);
+        row2.setAlignmentX(LEFT_ALIGNMENT);
+
+        GridBagConstraints gbc2 = new GridBagConstraints();
+        gbc2.insets = new java.awt.Insets(4, 4, 4, 12);
+        gbc2.anchor = GridBagConstraints.WEST;
+        gbc2.fill = GridBagConstraints.HORIZONTAL;
+
+        JLabel timeInLabel = new JLabel("Proposed Time In:");
+        timeInLabel.setFont(Theme.FONT_BODY);
+
+        proposedTimeInSpinner.setFont(Theme.FONT_BODY);
+        proposedTimeInSpinner.setPreferredSize(new Dimension(160, 34));
+        proposedTimeInSpinner.setMaximumSize(new Dimension(160, 34));
+        JSpinner.DateEditor timeInEditor = new JSpinner.DateEditor(proposedTimeInSpinner, "hh:mm a");
+        proposedTimeInSpinner.setEditor(timeInEditor);
+
+        JLabel timeOutLabel = new JLabel("Proposed Time Out:");
+        timeOutLabel.setFont(Theme.FONT_BODY);
+
+        proposedTimeOutSpinner.setFont(Theme.FONT_BODY);
+        proposedTimeOutSpinner.setPreferredSize(new Dimension(160, 34));
+        proposedTimeOutSpinner.setMaximumSize(new Dimension(160, 34));
+        JSpinner.DateEditor timeOutEditor = new JSpinner.DateEditor(proposedTimeOutSpinner, "hh:mm a");
+        proposedTimeOutSpinner.setEditor(timeOutEditor);
+
+        gbc2.gridx = 0;
+        gbc2.gridy = 0;
+        gbc2.weightx = 0;
+        row2.add(timeInLabel, gbc2);
+
+        gbc2.gridx = 1;
+        gbc2.weightx = 1.0;
+        row2.add(proposedTimeInSpinner, gbc2);
+
+        gbc2.gridx = 2;
+        gbc2.weightx = 0;
+        row2.add(timeOutLabel, gbc2);
+
+        gbc2.gridx = 3;
+        gbc2.weightx = 0.35;
+        row2.add(proposedTimeOutSpinner, gbc2);
+
+        JLabel reasonLabel = new JLabel("Reason:");
+        reasonLabel.setFont(Theme.FONT_BODY);
+        reasonLabel.setAlignmentX(LEFT_ALIGNMENT);
+
+        adjustmentReasonArea.setLineWrap(true);
+        adjustmentReasonArea.setWrapStyleWord(true);
+        adjustmentReasonArea.setFont(Theme.FONT_BODY);
+        adjustmentReasonArea.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        JScrollPane reasonScroll = new JScrollPane(adjustmentReasonArea);
+        reasonScroll.setPreferredSize(new Dimension(900, 100));
+        reasonScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 100));
+        reasonScroll.setAlignmentX(LEFT_ALIGNMENT);
+
+        JPanel actionRow = new JPanel(new BorderLayout());
+        actionRow.setBackground(Theme.CARD_BACKGROUND);
+        actionRow.setAlignmentX(LEFT_ALIGNMENT);
+
+        JPanel leftButtons = new JPanel();
+        leftButtons.setBackground(Theme.CARD_BACKGROUND);
+        leftButtons.setLayout(new BoxLayout(leftButtons, BoxLayout.X_AXIS));
+
+        JButton submitButton = new JButton("Submit Request");
+        submitButton.setFont(Theme.FONT_BUTTON);
+        submitButton.setBackground(Theme.PRIMARY);
+        submitButton.setForeground(Color.WHITE);
+        submitButton.setFocusPainted(false);
+        submitButton.setPreferredSize(new Dimension(160, 40));
+        submitButton.setMaximumSize(new Dimension(160, 40));
+
+        if (canSubmitAdjustmentRequests()) {
+            leftButtons.add(submitButton);
+        }
+
+        JPanel rightButtons = new JPanel();
+        rightButtons.setBackground(Theme.CARD_BACKGROUND);
+        rightButtons.setLayout(new BoxLayout(rightButtons, BoxLayout.X_AXIS));
+
+        JLabel remarksLabel = new JLabel("Remarks:");
+        remarksLabel.setFont(Theme.FONT_BODY);
+
+        adjustmentRemarksField.setFont(Theme.FONT_BODY);
+        adjustmentRemarksField.setPreferredSize(new Dimension(220, 34));
+        adjustmentRemarksField.setMaximumSize(new Dimension(220, 34));
+
+        JButton approveButton = new JButton("Approve Selected");
+        approveButton.setFont(Theme.FONT_BUTTON);
+        approveButton.setBackground(Theme.PRIMARY);
+        approveButton.setForeground(Color.WHITE);
+        approveButton.setFocusPainted(false);
+        approveButton.setPreferredSize(new Dimension(160, 40));
+
+        JButton rejectButton = new JButton("Reject Selected");
+        rejectButton.setFont(Theme.FONT_BUTTON);
+        rejectButton.setBackground(new Color(200, 80, 80));
+        rejectButton.setForeground(Color.WHITE);
+        rejectButton.setFocusPainted(false);
+        rejectButton.setPreferredSize(new Dimension(150, 40));
+
+        if (canApproveAdjustmentRequests()) {
+            rightButtons.add(remarksLabel);
+            rightButtons.add(Box.createRigidArea(new Dimension(8, 0)));
+            rightButtons.add(adjustmentRemarksField);
+            rightButtons.add(Box.createRigidArea(new Dimension(10, 0)));
+            rightButtons.add(approveButton);
+            rightButtons.add(Box.createRigidArea(new Dimension(8, 0)));
+            rightButtons.add(rejectButton);
+        }
+
+        actionRow.add(leftButtons, BorderLayout.WEST);
+        actionRow.add(rightButtons, BorderLayout.EAST);
+
+        formCard.add(heading);
+        formCard.add(Box.createRigidArea(new Dimension(0, 12)));
+        formCard.add(row1);
+        formCard.add(Box.createRigidArea(new Dimension(0, 12)));
+        formCard.add(row2);
+        formCard.add(Box.createRigidArea(new Dimension(0, 12)));
+        formCard.add(reasonLabel);
+        formCard.add(Box.createRigidArea(new Dimension(0, 6)));
+        formCard.add(reasonScroll);
+        formCard.add(Box.createRigidArea(new Dimension(0, 12)));
+        formCard.add(actionRow);
+
+        JPanel tableCard = new JPanel(new BorderLayout());
+        tableCard.setBackground(Theme.CARD_BACKGROUND);
+        tableCard.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Theme.BORDER_LIGHT),
+                BorderFactory.createEmptyBorder(0, 0, 0, 0)
+        ));
+        tableCard.setAlignmentX(LEFT_ALIGNMENT);
+
+        JTable adjustmentTable = new JTable(adjustmentTableModel);
+        adjustmentTable.setRowHeight(28);
+        adjustmentTable.setFont(Theme.FONT_BODY);
+        adjustmentTable.getTableHeader().setFont(Theme.FONT_BUTTON);
+        adjustmentTable.setFillsViewportHeight(true);
+        adjustmentTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+
+        JScrollPane adjustmentScrollPane = new JScrollPane(adjustmentTable);
+        adjustmentScrollPane.setPreferredSize(new Dimension(1000, 220));
+
+        tableCard.add(adjustmentScrollPane, BorderLayout.CENTER);
+
+        sectionWrapper.add(formCard);
+        sectionWrapper.add(Box.createRigidArea(new Dimension(0, 14)));
+        sectionWrapper.add(tableCard);
+
+        submitButton.addActionListener(e -> submitEmbeddedAdjustmentRequest());
+        approveButton.addActionListener(e -> approveSelectedAdjustmentRequest(adjustmentTable));
+        rejectButton.addActionListener(e -> rejectSelectedAdjustmentRequest(adjustmentTable));
+
+        return sectionWrapper;
+    }
+
+    /**
+     * Creates one summary block.
      */
     private JPanel createSummaryItem(String labelText, JLabel valueLabel) {
 
@@ -334,7 +689,7 @@ public class AttendancePanel extends JPanel {
         itemPanel.setLayout(new BoxLayout(itemPanel, BoxLayout.Y_AXIS));
         itemPanel.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 6));
 
-        JLabel label = new JLabel(labelText);
+        JLabel label = new JLabel("<html><div style='text-align:left;'>" + labelText + "</div></html>");
         label.setFont(Theme.FONT_SMALL);
         label.setForeground(Theme.TEXT_SECONDARY);
 
@@ -349,19 +704,14 @@ public class AttendancePanel extends JPanel {
     }
 
     /**
-     * Initializes employee selection depending on role rules.
+     * Initializes employee selection depending on role.
      */
     private void initializeEmployeeSelection() {
 
         if (canViewOtherEmployees()) {
-            // HR, Admin, Supervisor can view other employees
             populateEmployeeDropdown(allEmployees);
-
-            // Default to logged-in employee if available
             selectEmployeeInDropdown(session.getEmployeeId());
-
         } else {
-            // Employee and IT can only view their own records
             Employee self = employeeRepository.findById(session.getEmployeeId());
             List<Employee> selfOnly = new ArrayList<>();
 
@@ -379,7 +729,21 @@ public class AttendancePanel extends JPanel {
     }
 
     /**
-     * Filters the employee dropdown based on search text.
+     * Loads adjustment employee dropdown.
+     */
+    private void loadAdjustmentEmployeeDropdown() {
+        adjustmentEmployeeComboBox.removeAllItems();
+
+        List<Employee> employees = new ArrayList<>(employeeRepository.findAll());
+        employees.sort(Comparator.comparing(Employee::getFullName));
+
+        for (Employee employee : employees) {
+            adjustmentEmployeeComboBox.addItem(new EmployeeItem(employee));
+        }
+    }
+
+    /**
+     * Filters employee dropdown.
      */
     private void filterEmployeeDropdown() {
 
@@ -402,7 +766,7 @@ public class AttendancePanel extends JPanel {
     }
 
     /**
-     * Loads the dropdown with employees.
+     * Fills employee selector.
      */
     private void populateEmployeeDropdown(List<Employee> employees) {
         employeeComboBox.removeAllItems();
@@ -415,7 +779,7 @@ public class AttendancePanel extends JPanel {
     }
 
     /**
-     * Selects one employee in the dropdown by employee ID.
+     * Select employee by ID.
      */
     private void selectEmployeeInDropdown(String employeeId) {
         for (int i = 0; i < employeeComboBox.getItemCount(); i++) {
@@ -428,7 +792,24 @@ public class AttendancePanel extends JPanel {
     }
 
     /**
-     * Loads real records for the currently selected employee.
+     * Toggle embedded adjustment section.
+     */
+    private void toggleAdjustmentSection() {
+        adjustmentVisible = !adjustmentVisible;
+
+        if (adjustmentVisible) {
+            adjustmentCardLayout.show(adjustmentContainer, ADJUSTMENT_VISIBLE);
+            loadAdjustmentTable();
+        } else {
+            adjustmentCardLayout.show(adjustmentContainer, ADJUSTMENT_HIDDEN);
+        }
+
+        revalidate();
+        repaint();
+    }
+
+    /**
+     * Loads attendance for current filter.
      */
     private void loadAttendanceForCurrentSelection() {
         populateYearOptions();
@@ -438,7 +819,7 @@ public class AttendancePanel extends JPanel {
     }
 
     /**
-     * Loads year options from the currently selected employee.
+     * Loads year options.
      */
     private void populateYearOptions() {
         yearComboBox.removeAllItems();
@@ -466,7 +847,7 @@ public class AttendancePanel extends JPanel {
     }
 
     /**
-     * Loads month options based on selected year.
+     * Loads month options.
      */
     private void refreshMonthOptions() {
         monthComboBox.removeAllItems();
@@ -499,10 +880,10 @@ public class AttendancePanel extends JPanel {
     }
 
     /**
-     * Loads attendance table and summaries.
+     * Loads attendance table and summary.
      */
     private void loadAttendanceData() {
-        tableModel.setRowCount(0);
+        attendanceTableModel.setRowCount(0);
 
         Integer selectedYear = (Integer) yearComboBox.getSelectedItem();
         MonthItem selectedMonth = (MonthItem) monthComboBox.getSelectedItem();
@@ -535,7 +916,7 @@ public class AttendancePanel extends JPanel {
             totalUndertimeHours += record.getUndertimeHours();
             totalOvertimeHours += record.getOvertimeHours();
 
-            tableModel.addRow(new Object[]{
+            attendanceTableModel.addRow(new Object[]{
                     record.getDate().format(DATE_FORMAT),
                     record.getTimeIn() == null ? "" : record.getTimeIn().format(TIME_FORMAT),
                     record.getTimeOut() == null ? "" : record.getTimeOut().format(TIME_FORMAT),
@@ -558,6 +939,127 @@ public class AttendancePanel extends JPanel {
     }
 
     /**
+     * Loads adjustment requests into embedded table.
+     */
+    private void loadAdjustmentTable() {
+        adjustmentTableModel.setRowCount(0);
+
+        List<AttendanceAdjustmentRequest> requests = adjustmentService.findAll();
+
+        for (AttendanceAdjustmentRequest request : requests) {
+            adjustmentTableModel.addRow(new Object[]{
+                    request.getRequestId(),
+                    request.getEmployeeId(),
+                    request.getEmployeeName(),
+                    request.getDate(),
+                    request.getCurrentTimeIn(),
+                    request.getCurrentTimeOut(),
+                    request.getProposedTimeIn(),
+                    request.getProposedTimeOut(),
+                    request.getRequestedByName(),
+                    request.getStatus()
+            });
+        }
+    }
+
+    /**
+     * Submit request from embedded section.
+     */
+    private void submitEmbeddedAdjustmentRequest() {
+
+        EmployeeItem selectedItem = (EmployeeItem) adjustmentEmployeeComboBox.getSelectedItem();
+        Employee currentUser = employeeRepository.findById(session.getEmployeeId());
+
+        if (selectedItem == null) {
+            JOptionPane.showMessageDialog(this, "Please select an employee.");
+            return;
+        }
+
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+        SimpleDateFormat timeFormat = new SimpleDateFormat("hh:mm a");
+
+        String selectedDate = dateFormat.format((Date) adjustmentDateSpinner.getValue());
+        String proposedTimeIn = timeFormat.format((Date) proposedTimeInSpinner.getValue());
+        String proposedTimeOut = timeFormat.format((Date) proposedTimeOutSpinner.getValue());
+
+        boolean success = adjustmentService.submitRequest(
+                selectedItem.getEmployee(),
+                currentUser,
+                selectedDate,
+                proposedTimeIn,
+                proposedTimeOut,
+                adjustmentReasonArea.getText().trim()
+        );
+
+        JOptionPane.showMessageDialog(this, adjustmentService.getLastMessage());
+
+        if (success) {
+            adjustmentDateSpinner.setValue(new Date());
+            proposedTimeInSpinner.setValue(new Date());
+            proposedTimeOutSpinner.setValue(new Date());
+            adjustmentReasonArea.setText("");
+            loadAdjustmentTable();
+            loadAttendanceForCurrentSelection();
+        }
+    }
+
+    /**
+     * Approve selected request from embedded section.
+     */
+    private void approveSelectedAdjustmentRequest(JTable adjustmentTable) {
+
+        int selectedRow = adjustmentTable.getSelectedRow();
+        if (selectedRow < 0) {
+            JOptionPane.showMessageDialog(this, "Please select a request first.");
+            return;
+        }
+
+        String requestId = String.valueOf(adjustmentTableModel.getValueAt(selectedRow, 0));
+        Employee currentUser = employeeRepository.findById(session.getEmployeeId());
+
+        boolean success = adjustmentService.approveRequest(
+                requestId,
+                currentUser,
+                adjustmentRemarksField.getText().trim()
+        );
+        JOptionPane.showMessageDialog(this, adjustmentService.getLastMessage());
+
+        if (success) {
+            adjustmentRemarksField.setText("");
+            loadAdjustmentTable();
+            loadAttendanceForCurrentSelection();
+        }
+    }
+
+    /**
+     * Reject selected request from embedded section.
+     */
+    private void rejectSelectedAdjustmentRequest(JTable adjustmentTable) {
+
+        int selectedRow = adjustmentTable.getSelectedRow();
+        if (selectedRow < 0) {
+            JOptionPane.showMessageDialog(this, "Please select a request first.");
+            return;
+        }
+
+        String requestId = String.valueOf(adjustmentTableModel.getValueAt(selectedRow, 0));
+        Employee currentUser = employeeRepository.findById(session.getEmployeeId());
+
+        boolean success = adjustmentService.rejectRequest(
+                requestId,
+                currentUser,
+                adjustmentRemarksField.getText().trim()
+        );
+
+        JOptionPane.showMessageDialog(this, adjustmentService.getLastMessage());
+
+        if (success) {
+            adjustmentRemarksField.setText("");
+            loadAdjustmentTable();
+        }
+    }
+
+    /**
      * Updates summary labels.
      */
     private void updateSummary(
@@ -575,7 +1077,7 @@ public class AttendancePanel extends JPanel {
     }
 
     /**
-     * Updates selected employee summary label.
+     * Updates selected employee label.
      */
     private void updateSelectedEmployeeLabel() {
         EmployeeItem selectedItem = (EmployeeItem) employeeComboBox.getSelectedItem();
@@ -610,6 +1112,30 @@ public class AttendancePanel extends JPanel {
     }
 
     /**
+     * HR / Admin / Supervisor can open embedded adjustment section.
+     */
+    private boolean canAdjustAttendance() {
+        String role = safeLower(session.getRole());
+        return role.contains("hr") || role.contains("admin") || role.contains("supervisor");
+    }
+
+    /**
+     * HR can submit.
+     */
+    private boolean canSubmitAdjustmentRequests() {
+        String role = safeLower(session.getRole());
+        return role.contains("hr");
+    }
+
+    /**
+     * Admin can approve/reject.
+     */
+    private boolean canApproveAdjustmentRequests() {
+        String role = safeLower(session.getRole());
+        return role.contains("admin");
+    }
+
+    /**
      * Lowercase helper with null safety.
      */
     private String safeLower(String text) {
@@ -632,7 +1158,7 @@ public class AttendancePanel extends JPanel {
 
         @Override
         public String toString() {
-            return employee.getEmployeeId() + " - " + employee.getFullName();
+            return employee.getFullName() + " (" + employee.getEmployeeId() + ")";
         }
     }
 

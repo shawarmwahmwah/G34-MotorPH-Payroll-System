@@ -1,5 +1,8 @@
 package motorph.ui.panel;
+import java.awt.GridBagLayout;
 
+import java.awt.GridBagConstraints;
+import java.awt.Insets;
 import motorph.model.AttendanceAdjustmentRequest;
 import motorph.model.Employee;
 import motorph.repository.CsvEmployeeRepository;
@@ -31,8 +34,13 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.awt.GridBagLayout;
+import java.awt.GridBagConstraints;
+import java.awt.Insets;
+import java.awt.GridBagLayout;
+import java.awt.GridBagConstraints;
+import java.awt.Insets;/**
 
-/**
  * AttendanceAdjustmentPanel
  *
  * HR submits requests.
@@ -116,13 +124,7 @@ public class AttendanceAdjustmentPanel extends JPanel {
         titleLabel.setFont(Theme.FONT_TITLE);
         titleLabel.setForeground(Theme.TEXT_PRIMARY);
 
-        JLabel subtitleLabel = new JLabel("HR submits requests, Admin approves/rejects, Supervisor views.");
-        subtitleLabel.setFont(Theme.FONT_SUBTITLE);
-        subtitleLabel.setForeground(Theme.TEXT_SECONDARY);
-
         topWrapper.add(titleLabel);
-        topWrapper.add(Box.createRigidArea(new Dimension(0, 6)));
-        topWrapper.add(subtitleLabel);
         topWrapper.add(Box.createRigidArea(new Dimension(0, 18)));
 
         if (canSubmitRequests()) {
@@ -271,7 +273,6 @@ public class AttendanceAdjustmentPanel extends JPanel {
 
         return card;
     }
-
     /**
      * Builds the Admin approval/rejection card.
      */
@@ -504,7 +505,7 @@ public class AttendanceAdjustmentPanel extends JPanel {
 
         @Override
         public String toString() {
-            return employee.getEmployeeId() + " - " + employee.getFullName();
+            return employee.getFullName() + " (" + employee.getEmployeeId() + ")";
         }
     }
 }

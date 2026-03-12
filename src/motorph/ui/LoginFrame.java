@@ -43,8 +43,8 @@ public class LoginFrame extends JFrame {
 
     public LoginFrame() {
         setTitle("MotorPH Payroll System - Login");
-        setSize(600, 460);
-        setMinimumSize(new Dimension(600, 460));
+        setSize(600, 500);
+        setMinimumSize(new Dimension(600, 500));
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 

@@ -2,8 +2,10 @@ package motorph.repository;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,10 +22,17 @@ public class CsvAttendanceRepository implements AttendanceRepository {
     private final AttendanceCalculator calculator;
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+    private static final DateTimeFormatter CSV_TIME_FMT = DateTimeFormatter.ofPattern("H:mm");
+    private static final DateTimeFormatter AMPM_TIME_FMT = DateTimeFormatter.ofPattern("h:mm a");
 
     public CsvAttendanceRepository() {
         this.attendanceFile = PathHelper.getDataFile("employee_attendance.csv");
         this.calculator = new AttendanceCalculator();
+    }
+
+    @Override
+    public List<AttendanceRecord> findAll() {
+        return loadRecords(null, null, null);
     }
 
     @Override
@@ -47,6 +56,81 @@ public class CsvAttendanceRepository implements AttendanceRepository {
         }
 
         return null;
+    }
+
+    @Override
+    public boolean updateAttendanceTime(String employeeId, LocalDate date, String newTimeIn, String newTimeOut) {
+
+        if (employeeId == null || employeeId.trim().isEmpty() || date == null) {
+            return false;
+        }
+
+        String formattedDate = date.format(DATE_FMT);
+        String csvTimeIn = normalizeToCsvTime(newTimeIn);
+        String csvTimeOut = normalizeToCsvTime(newTimeOut);
+
+        if (csvTimeIn == null || csvTimeOut == null) {
+            return false;
+        }
+
+        List<String> rewrittenLines = new ArrayList<>();
+        boolean updated = false;
+
+        try (BufferedReader br = new BufferedReader(new FileReader(attendanceFile.toFile()))) {
+
+            String header = br.readLine();
+            if (header == null) {
+                return false;
+            }
+
+            rewrittenLines.add(header);
+
+            String line;
+            while ((line = br.readLine()) != null) {
+
+                if (line.trim().isEmpty()) {
+                    rewrittenLines.add(line);
+                    continue;
+                }
+
+                List<String> p = CsvUtil.splitCsvLine(line);
+
+                if (p.size() < 6) {
+                    rewrittenLines.add(line);
+                    continue;
+                }
+
+                String rowEmployeeId = p.get(0).trim();
+                String rowDate = p.get(3).trim();
+
+                if (rowEmployeeId.equals(employeeId) && rowDate.equals(formattedDate)) {
+                    p.set(4, csvTimeIn);
+                    p.set(5, csvTimeOut);
+                    updated = true;
+                }
+
+                rewrittenLines.add(toCsvRow(p));
+            }
+
+        } catch (Exception e) {
+            System.out.println("Error reading employee_attendance.csv for update: " + e.getMessage());
+            return false;
+        }
+
+        if (!updated) {
+            return false;
+        }
+
+        try (FileWriter fw = new FileWriter(attendanceFile.toFile(), false)) {
+            for (String rewrittenLine : rewrittenLines) {
+                fw.write(rewrittenLine + "\n");
+            }
+            fw.flush();
+            return true;
+        } catch (Exception e) {
+            System.out.println("Error rewriting employee_attendance.csv: " + e.getMessage());
+            return false;
+        }
     }
 
     private List<AttendanceRecord> loadRecords(String employeeId, Integer year, Integer month) {
@@ -73,7 +157,8 @@ public class CsvAttendanceRepository implements AttendanceRepository {
                 }
 
                 String id = p.get(0).trim();
-                if (!id.equals(employeeId)) {
+
+                if (employeeId != null && !employeeId.trim().isEmpty() && !id.equals(employeeId)) {
                     continue;
                 }
 
@@ -88,8 +173,8 @@ public class CsvAttendanceRepository implements AttendanceRepository {
                     }
                 }
 
-                var timeIn = TimeUtil.parseTime(p.get(4));
-                var timeOut = TimeUtil.parseTime(p.get(5));
+                LocalTime timeIn = TimeUtil.parseTime(p.get(4));
+                LocalTime timeOut = TimeUtil.parseTime(p.get(5));
 
                 String dayStatus = calculator.computeDayStatus(timeIn);
                 int workedMinutes = calculator.computeWorkedMinutesMinusLunch(timeIn, timeOut);
@@ -128,5 +213,57 @@ public class CsvAttendanceRepository implements AttendanceRepository {
         }
 
         return out;
+    }
+
+    private String normalizeToCsvTime(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return null;
+        }
+
+        String cleaned = raw.trim().toUpperCase();
+
+        try {
+            LocalTime parsed12Hour = LocalTime.parse(cleaned, AMPM_TIME_FMT);
+            return parsed12Hour.format(CSV_TIME_FMT);
+        } catch (Exception ignored) {
+            // Try plain 24-hour format next
+        }
+
+        try {
+            LocalTime parsed24Hour = TimeUtil.parseTime(cleaned);
+            if (parsed24Hour == null) {
+                return null;
+            }
+            return parsed24Hour.format(CSV_TIME_FMT);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String toCsvRow(List<String> values) {
+        StringBuilder sb = new StringBuilder();
+
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) {
+                sb.append(",");
+            }
+            sb.append(escape(values.get(i)));
+        }
+
+        return sb.toString();
+    }
+
+    private String escape(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        String escaped = value.replace("\"", "\"\"");
+
+        if (escaped.contains(",") || escaped.contains("\"") || escaped.contains("\n")) {
+            return "\"" + escaped + "\"";
+        }
+
+        return escaped;
     }
 }

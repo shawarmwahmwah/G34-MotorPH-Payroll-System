@@ -110,6 +110,10 @@ public class UserProfilePanel extends JPanel {
         if (value.equals("supervisor")) {
             return "Supervisor";
         }
+        
+        if (value.equals("finance")) {
+            return "Finance";
+        }
 
         if (value.equals("employee")) {
             return "Employee";
