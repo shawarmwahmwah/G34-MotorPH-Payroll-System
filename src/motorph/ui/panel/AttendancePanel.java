@@ -111,6 +111,7 @@ public class AttendancePanel extends JPanel {
         this.monthComboBox = new JComboBox<>();
 
         this.selectedEmployeeValueLabel = new JLabel("-");
+        this.selectedEmployeeValueLabel.setFont(Theme.FONT_BODY);
         this.daysWithLogsValueLabel = new JLabel("0");
         this.totalWorkedHoursValueLabel = new JLabel("0.00");
         this.totalLateHoursValueLabel = new JLabel("0.00");
@@ -177,7 +178,7 @@ public class AttendancePanel extends JPanel {
 
         setLayout(new BorderLayout());
         setBackground(Theme.CONTENT_BACKGROUND);
-        setBorder(BorderFactory.createEmptyBorder(24, 24, 24, 24));
+        setBorder(BorderFactory.createEmptyBorder(18,18,18,18));
 
         buildUI();
         initializeEmployeeSelection();
@@ -206,9 +207,9 @@ public class AttendancePanel extends JPanel {
         subtitleLabel.setAlignmentX(LEFT_ALIGNMENT);
 
         wrapper.add(titleLabel);
-        wrapper.add(Box.createRigidArea(new Dimension(0, 6)));
+        wrapper.add(Box.createRigidArea(new Dimension(0, 4)));
         wrapper.add(subtitleLabel);
-        wrapper.add(Box.createRigidArea(new Dimension(0, 18)));
+        wrapper.add(Box.createRigidArea(new Dimension(0, 12)));
 
         // Top compact toolbar card
         JPanel toolbarCard = new JPanel();
@@ -219,7 +220,7 @@ public class AttendancePanel extends JPanel {
                 BorderFactory.createEmptyBorder(16, 16, 16, 16)
         ));
         toolbarCard.setAlignmentX(LEFT_ALIGNMENT);
-        toolbarCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 150));
+        toolbarCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 165));
 
         // Row 1: employee area
         JPanel employeeRow = new JPanel(new GridBagLayout());
@@ -238,8 +239,8 @@ public class AttendancePanel extends JPanel {
             searchLabel.setForeground(Theme.TEXT_PRIMARY);
 
             employeeSearchField.setFont(Theme.FONT_BODY);
-            employeeSearchField.setPreferredSize(new Dimension(220, 34));
-            employeeSearchField.setMaximumSize(new Dimension(220, 34));
+            employeeSearchField.setPreferredSize(new Dimension(260, 34));
+            employeeSearchField.setMaximumSize(new Dimension(260, 34));
 
             JButton searchButton = new JButton("Search");
             searchButton.setFont(Theme.FONT_BUTTON);
@@ -253,8 +254,8 @@ public class AttendancePanel extends JPanel {
             employeeLabel.setForeground(Theme.TEXT_PRIMARY);
 
             employeeComboBox.setFont(Theme.FONT_BODY);
-            employeeComboBox.setPreferredSize(new Dimension(360, 34));
-            employeeComboBox.setMaximumSize(new Dimension(360, 34));
+            employeeComboBox.setPreferredSize(new Dimension(420, 34));
+            employeeComboBox.setMaximumSize(new Dimension(420, 34));
 
             gbcEmp.gridx = 0;
             gbcEmp.weightx = 0;
@@ -324,8 +325,8 @@ public class AttendancePanel extends JPanel {
         yearComboBox.setMaximumSize(new Dimension(120, 34));
 
         monthComboBox.setFont(Theme.FONT_BODY);
-        monthComboBox.setPreferredSize(new Dimension(190, 34));
-        monthComboBox.setMaximumSize(new Dimension(190, 34));
+        monthComboBox.setPreferredSize(new Dimension(210, 34));
+        monthComboBox.setMaximumSize(new Dimension(210, 34));
 
         filterLeft.add(yearLabel);
         filterLeft.add(Box.createRigidArea(new Dimension(10, 0)));
@@ -339,7 +340,7 @@ public class AttendancePanel extends JPanel {
         filterRight.setBackground(Theme.CARD_BACKGROUND);
         filterRight.setLayout(new BoxLayout(filterRight, BoxLayout.X_AXIS));
 
-        JButton adjustAttendanceButton = new JButton("Adjust Attendance");
+        JButton adjustAttendanceButton = new JButton("Open Attendance Adjustment");
         adjustAttendanceButton.setFont(Theme.FONT_BUTTON);
         adjustAttendanceButton.setBackground(Theme.PRIMARY);
         adjustAttendanceButton.setForeground(Color.WHITE);
@@ -372,7 +373,7 @@ public class AttendancePanel extends JPanel {
         toolbarCard.add(filterRow);
 
         wrapper.add(toolbarCard);
-        wrapper.add(Box.createRigidArea(new Dimension(0, 16)));
+        wrapper.add(Box.createRigidArea(new Dimension(0, 12)));
 
         // Embedded adjustment section
         adjustmentContainer.setBackground(Theme.CONTENT_BACKGROUND);
@@ -380,6 +381,9 @@ public class AttendancePanel extends JPanel {
 
         JPanel hiddenPanel = new JPanel();
         hiddenPanel.setBackground(Theme.CONTENT_BACKGROUND);
+        hiddenPanel.setPreferredSize(new Dimension(0, 0));
+        hiddenPanel.setMaximumSize(new Dimension(0, 0));
+        hiddenPanel.setMinimumSize(new Dimension(0, 0));
 
         JPanel visiblePanel = buildEmbeddedAdjustmentSection();
 
@@ -388,7 +392,7 @@ public class AttendancePanel extends JPanel {
         adjustmentCardLayout.show(adjustmentContainer, ADJUSTMENT_HIDDEN);
 
         wrapper.add(adjustmentContainer);
-        wrapper.add(Box.createRigidArea(new Dimension(0, 16)));
+        wrapper.add(Box.createRigidArea(new Dimension(0, 12)));
 
         // Summary card
         JPanel summaryCard = new JPanel(new GridLayout(1, 6, 14, 0));
@@ -426,8 +430,18 @@ public class AttendancePanel extends JPanel {
         attendanceTable.setFillsViewportHeight(true);
         attendanceTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
 
+        attendanceTable.getColumnModel().getColumn(0).setPreferredWidth(110); // Date
+        attendanceTable.getColumnModel().getColumn(1).setPreferredWidth(90);  // Time In
+        attendanceTable.getColumnModel().getColumn(2).setPreferredWidth(90);  // Time Out
+        attendanceTable.getColumnModel().getColumn(3).setPreferredWidth(120); // Status
+        attendanceTable.getColumnModel().getColumn(4).setPreferredWidth(110); // Worked Hours
+        attendanceTable.getColumnModel().getColumn(5).setPreferredWidth(100); // Late Hours
+        attendanceTable.getColumnModel().getColumn(6).setPreferredWidth(130); // Undertime Hours
+        attendanceTable.getColumnModel().getColumn(7).setPreferredWidth(110); // Regular Hours
+        attendanceTable.getColumnModel().getColumn(8).setPreferredWidth(115); // Overtime Hours
+
         JScrollPane attendanceScrollPane = new JScrollPane(attendanceTable);
-        attendanceScrollPane.setPreferredSize(new Dimension(1000, 360));
+        attendanceScrollPane.setPreferredSize(new Dimension(1120, 430));
 
         tableCard.add(attendanceScrollPane, BorderLayout.CENTER);
 
@@ -471,9 +485,9 @@ public class AttendancePanel extends JPanel {
                 BorderFactory.createEmptyBorder(16, 16, 16, 16)
         ));
         formCard.setAlignmentX(LEFT_ALIGNMENT);
-        formCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 320));
+        formCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 350));
 
-        JLabel heading = new JLabel("Attendance Adjustment");
+        JLabel heading = new JLabel("Attendance Adjustment Request");
         heading.setFont(Theme.FONT_HEADING);
         heading.setForeground(Theme.TEXT_PRIMARY);
         heading.setAlignmentX(LEFT_ALIGNMENT);
@@ -491,8 +505,8 @@ public class AttendancePanel extends JPanel {
         employeeLabel.setFont(Theme.FONT_BODY);
 
         adjustmentEmployeeComboBox.setFont(Theme.FONT_BODY);
-        adjustmentEmployeeComboBox.setPreferredSize(new Dimension(360, 34));
-        adjustmentEmployeeComboBox.setMaximumSize(new Dimension(360, 34));
+        adjustmentEmployeeComboBox.setPreferredSize(new Dimension(420, 34));
+        adjustmentEmployeeComboBox.setMaximumSize(new Dimension(420, 34));
 
         JLabel dateLabel = new JLabel("Date:");
         dateLabel.setFont(Theme.FONT_BODY);
@@ -574,8 +588,8 @@ public class AttendancePanel extends JPanel {
         adjustmentReasonArea.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         JScrollPane reasonScroll = new JScrollPane(adjustmentReasonArea);
-        reasonScroll.setPreferredSize(new Dimension(900, 100));
-        reasonScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 100));
+        reasonScroll.setPreferredSize(new Dimension(900, 120));
+        reasonScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
         reasonScroll.setAlignmentX(LEFT_ALIGNMENT);
 
         JPanel actionRow = new JPanel(new BorderLayout());
@@ -606,8 +620,8 @@ public class AttendancePanel extends JPanel {
         remarksLabel.setFont(Theme.FONT_BODY);
 
         adjustmentRemarksField.setFont(Theme.FONT_BODY);
-        adjustmentRemarksField.setPreferredSize(new Dimension(220, 34));
-        adjustmentRemarksField.setMaximumSize(new Dimension(220, 34));
+        adjustmentRemarksField.setPreferredSize(new Dimension(260, 34));
+        adjustmentRemarksField.setMaximumSize(new Dimension(260, 34));
 
         JButton approveButton = new JButton("Approve Selected");
         approveButton.setFont(Theme.FONT_BUTTON);
@@ -637,15 +651,15 @@ public class AttendancePanel extends JPanel {
         actionRow.add(rightButtons, BorderLayout.EAST);
 
         formCard.add(heading);
-        formCard.add(Box.createRigidArea(new Dimension(0, 12)));
+        formCard.add(Box.createRigidArea(new Dimension(0, 10)));
         formCard.add(row1);
-        formCard.add(Box.createRigidArea(new Dimension(0, 12)));
+        formCard.add(Box.createRigidArea(new Dimension(0, 10)));
         formCard.add(row2);
-        formCard.add(Box.createRigidArea(new Dimension(0, 12)));
+        formCard.add(Box.createRigidArea(new Dimension(0, 10)));
         formCard.add(reasonLabel);
-        formCard.add(Box.createRigidArea(new Dimension(0, 6)));
+        formCard.add(Box.createRigidArea(new Dimension(0, 4)));
         formCard.add(reasonScroll);
-        formCard.add(Box.createRigidArea(new Dimension(0, 12)));
+        formCard.add(Box.createRigidArea(new Dimension(0, 10)));
         formCard.add(actionRow);
 
         JPanel tableCard = new JPanel(new BorderLayout());
@@ -663,13 +677,24 @@ public class AttendancePanel extends JPanel {
         adjustmentTable.setFillsViewportHeight(true);
         adjustmentTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
 
+        adjustmentTable.getColumnModel().getColumn(0).setPreferredWidth(90);   // Request ID
+        adjustmentTable.getColumnModel().getColumn(1).setPreferredWidth(90);   // Employee ID
+        adjustmentTable.getColumnModel().getColumn(2).setPreferredWidth(180);  // Employee Name
+        adjustmentTable.getColumnModel().getColumn(3).setPreferredWidth(110);  // Date
+        adjustmentTable.getColumnModel().getColumn(4).setPreferredWidth(90);   // Current In
+        adjustmentTable.getColumnModel().getColumn(5).setPreferredWidth(90);   // Current Out
+        adjustmentTable.getColumnModel().getColumn(6).setPreferredWidth(95);   // Proposed In
+        adjustmentTable.getColumnModel().getColumn(7).setPreferredWidth(95);   // Proposed Out
+        adjustmentTable.getColumnModel().getColumn(8).setPreferredWidth(180);  // Requested By
+        adjustmentTable.getColumnModel().getColumn(9).setPreferredWidth(100);  // Status
+        
         JScrollPane adjustmentScrollPane = new JScrollPane(adjustmentTable);
-        adjustmentScrollPane.setPreferredSize(new Dimension(1000, 220));
+        adjustmentScrollPane.setPreferredSize(new Dimension(1120, 260));
 
         tableCard.add(adjustmentScrollPane, BorderLayout.CENTER);
 
         sectionWrapper.add(formCard);
-        sectionWrapper.add(Box.createRigidArea(new Dimension(0, 14)));
+        sectionWrapper.add(Box.createRigidArea(new Dimension(0, 10)));
         sectionWrapper.add(tableCard);
 
         submitButton.addActionListener(e -> submitEmbeddedAdjustmentRequest());
@@ -689,11 +714,11 @@ public class AttendancePanel extends JPanel {
         itemPanel.setLayout(new BoxLayout(itemPanel, BoxLayout.Y_AXIS));
         itemPanel.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 6));
 
-        JLabel label = new JLabel("<html><div style='text-align:left;'>" + labelText + "</div></html>");
+        JLabel label = new JLabel("<html><div style='width:120px; text-align:left;'>" + labelText + "</div></html>");
         label.setFont(Theme.FONT_SMALL);
         label.setForeground(Theme.TEXT_SECONDARY);
 
-        valueLabel.setFont(Theme.FONT_HEADING);
+        valueLabel.setFont(Theme.FONT_BODY);
         valueLabel.setForeground(Theme.TEXT_PRIMARY);
 
         itemPanel.add(label);
@@ -734,11 +759,29 @@ public class AttendancePanel extends JPanel {
     private void loadAdjustmentEmployeeDropdown() {
         adjustmentEmployeeComboBox.removeAllItems();
 
-        List<Employee> employees = new ArrayList<>(employeeRepository.findAll());
-        employees.sort(Comparator.comparing(Employee::getFullName));
+        List<Employee> employees = new ArrayList<>();
+
+        if (canViewOtherEmployees()) {
+            employees.addAll(employeeRepository.findAll());
+            employees.sort(Comparator.comparing(Employee::getFullName));
+        } else {
+            Employee self = employeeRepository.findById(session.getEmployeeId());
+            if (self != null) {
+                employees.add(self);
+            }
+        }
 
         for (Employee employee : employees) {
             adjustmentEmployeeComboBox.addItem(new EmployeeItem(employee));
+        }
+
+        // default select current user if present
+        for (int i = 0; i < adjustmentEmployeeComboBox.getItemCount(); i++) {
+            EmployeeItem item = adjustmentEmployeeComboBox.getItemAt(i);
+            if (item.getEmployee().getEmployeeId().equals(session.getEmployeeId())) {
+                adjustmentEmployeeComboBox.setSelectedIndex(i);
+                break;
+            }
         }
     }
 
@@ -1000,6 +1043,11 @@ public class AttendancePanel extends JPanel {
             adjustmentReasonArea.setText("");
             loadAdjustmentTable();
             loadAttendanceForCurrentSelection();
+
+            adjustmentVisible = false;
+            adjustmentCardLayout.show(adjustmentContainer, ADJUSTMENT_HIDDEN);
+            revalidate();
+            repaint();
         }
     }
 
@@ -1028,6 +1076,11 @@ public class AttendancePanel extends JPanel {
             adjustmentRemarksField.setText("");
             loadAdjustmentTable();
             loadAttendanceForCurrentSelection();
+
+            adjustmentVisible = false;
+            adjustmentCardLayout.show(adjustmentContainer, ADJUSTMENT_HIDDEN);
+            revalidate();
+            repaint();
         }
     }
 
@@ -1056,6 +1109,11 @@ public class AttendancePanel extends JPanel {
         if (success) {
             adjustmentRemarksField.setText("");
             loadAdjustmentTable();
+
+            adjustmentVisible = false;
+            adjustmentCardLayout.show(adjustmentContainer, ADJUSTMENT_HIDDEN);
+            revalidate();
+            repaint();
         }
     }
 
@@ -1087,7 +1145,10 @@ public class AttendancePanel extends JPanel {
             return;
         }
 
-        selectedEmployeeValueLabel.setText(selectedItem.getEmployee().getEmployeeId());
+        selectedEmployeeValueLabel.setText(
+                selectedItem.getEmployee().getFullName() + " (" +
+                selectedItem.getEmployee().getEmployeeId() + ")"
+        );
     }
 
     /**

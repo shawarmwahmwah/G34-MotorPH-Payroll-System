@@ -132,7 +132,7 @@ public class CsvAttendanceRepository implements AttendanceRepository {
             return false;
         }
     }
-
+    
     private List<AttendanceRecord> loadRecords(String employeeId, Integer year, Integer month) {
 
         List<AttendanceRecord> out = new ArrayList<>();
@@ -223,18 +223,20 @@ public class CsvAttendanceRepository implements AttendanceRepository {
         String cleaned = raw.trim().toUpperCase();
 
         try {
-            LocalTime parsed12Hour = LocalTime.parse(cleaned, AMPM_TIME_FMT);
-            return parsed12Hour.format(CSV_TIME_FMT);
+            java.time.LocalTime parsed12Hour = java.time.LocalTime.parse(
+                    cleaned,
+                    java.time.format.DateTimeFormatter.ofPattern("h:mm a")
+            );
+            return parsed12Hour.format(java.time.format.DateTimeFormatter.ofPattern("H:mm"));
         } catch (Exception ignored) {
-            // Try plain 24-hour format next
         }
 
         try {
-            LocalTime parsed24Hour = TimeUtil.parseTime(cleaned);
+            java.time.LocalTime parsed24Hour = TimeUtil.parseTime(cleaned);
             if (parsed24Hour == null) {
                 return null;
             }
-            return parsed24Hour.format(CSV_TIME_FMT);
+            return parsed24Hour.format(java.time.format.DateTimeFormatter.ofPattern("H:mm"));
         } catch (Exception e) {
             return null;
         }
