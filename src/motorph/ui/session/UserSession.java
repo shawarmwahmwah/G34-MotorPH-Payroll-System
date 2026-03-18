@@ -1,25 +1,18 @@
 package motorph.ui.session;
 
 import motorph.model.Employee;
-import motorph.model.UserAccount;
 
 /**
  * UserSession
  *
- * Stores the currently logged-in account and employee details.
+ * Stores the currently logged-in employee details.
  */
 public class UserSession {
 
-    private final UserAccount account;
     private final Employee employee;
 
-    public UserSession(UserAccount account, Employee employee) {
-        this.account = account;
+    public UserSession(Employee employee) {
         this.employee = employee;
-    }
-
-    public UserAccount getAccount() {
-        return account;
     }
 
     public Employee getEmployee() {
@@ -39,6 +32,6 @@ public class UserSession {
     }
 
     public String getRole() {
-        return account.getRole();
+        return employee.getRole();
     }
 }

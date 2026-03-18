@@ -1,135 +1,100 @@
 package motorph.ui.panel;
 
-import motorph.model.AttendanceAdjustmentRequest;
-import motorph.model.AttendanceRecord;
-import motorph.model.Employee;
-import motorph.repository.AttendanceRepository;
-import motorph.repository.CsvAttendanceRepository;
-import motorph.repository.CsvEmployeeRepository;
-import motorph.repository.EmployeeRepository;
-import motorph.service.AttendanceAdjustmentService;
-import motorph.ui.Theme;
-import motorph.ui.session.UserSession;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.time.Duration;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.TextStyle;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
-import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
-import javax.swing.JTextArea;
 import javax.swing.JTextField;
-import javax.swing.JSpinner;
-import javax.swing.SpinnerDateModel;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
-import java.awt.BorderLayout;
-import java.awt.CardLayout;
-import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.GridLayout;
-import java.text.DecimalFormat;
-import java.text.SimpleDateFormat;
-import java.time.Month;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Date;
-import java.util.List;
-import java.util.Locale;
 
-/**
- * AttendancePanel
- *
- * Compact attendance view with embedded adjustment section.
- * - Employee / IT: own attendance only
- * - HR / Admin / Supervisor: can view other employees
- * - HR / Admin / Supervisor: can open embedded adjustment section
- * - HR: can submit adjustment requests
- * - Admin: can approve/reject requests
- * - Supervisor: view adjustment requests only
- */
+import motorph.model.AttendanceRecord;
+import motorph.repository.AttendanceRepository;
+import motorph.repository.CsvAttendanceRepository;
+import motorph.ui.Theme;
+import motorph.ui.security.RoleAccess;
+import motorph.ui.session.UserSession;
+
 public class AttendancePanel extends JPanel {
 
     private static final long serialVersionUID = 1L;
+    private static final LocalTime LATE_CUTOFF = LocalTime.of(9, 0);
+    private static final LocalTime LUNCH_START = LocalTime.of(12, 0);
+    private static final LocalTime LUNCH_END = LocalTime.of(13, 0);
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("MMM dd, yyyy", Locale.ENGLISH);
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
+
+    public enum ViewScope {
+        SELF("Attendance", "View your own attendance records and filter them by payroll period."),
+        TEAM("Team Attendance", "Review attendance records for your direct reports."),
+        ALL("Attendance Monitoring", "Monitor attendance records across the organization.");
+
+        private final String title;
+        private final String subtitle;
+
+        ViewScope(String title, String subtitle) {
+            this.title = title;
+            this.subtitle = subtitle;
+        }
+    }
 
     private final UserSession session;
+    private final ViewScope viewScope;
     private final AttendanceRepository attendanceRepository;
-    private final EmployeeRepository employeeRepository;
-    private final AttendanceAdjustmentService adjustmentService;
 
-    private final JTextField employeeSearchField;
-    private final JComboBox<EmployeeItem> employeeComboBox;
     private final JComboBox<Integer> yearComboBox;
-    private final JComboBox<MonthItem> monthComboBox;
+    private final JComboBox<Integer> monthComboBox;
+    private final JCheckBox showAllCheckBox;
+    private final JTextField searchField;
+    private final DefaultTableModel tableModel;
+    private final JTable attendanceTable;
 
-    private final JLabel selectedEmployeeValueLabel;
-    private final JLabel daysWithLogsValueLabel;
-    private final JLabel totalWorkedHoursValueLabel;
-    private final JLabel totalLateHoursValueLabel;
-    private final JLabel totalUndertimeHoursValueLabel;
-    private final JLabel totalOvertimeHoursValueLabel;
+    private final JLabel totalDaysPresentValueLabel;
+    private final JLabel totalHoursWorkedValueLabel;
+    private final JLabel lateCountValueLabel;
+    private final JLabel overtimeHoursValueLabel;
 
-    private final DefaultTableModel attendanceTableModel;
-    private final DefaultTableModel adjustmentTableModel;
-
-    private final JPanel adjustmentContainer;
-    private final CardLayout adjustmentCardLayout;
-    private static final String ADJUSTMENT_HIDDEN = "HIDDEN";
-    private static final String ADJUSTMENT_VISIBLE = "VISIBLE";
-    private boolean adjustmentVisible = false;
-
-    // Embedded adjustment form fields
-    private final JComboBox<EmployeeItem> adjustmentEmployeeComboBox;
-    private final JSpinner adjustmentDateSpinner;
-    private final JSpinner proposedTimeInSpinner;
-    private final JSpinner proposedTimeOutSpinner;
-    private final JTextArea adjustmentReasonArea;
-    private final JTextField adjustmentRemarksField;
-
-    private List<Employee> allEmployees;
-    private List<AttendanceRecord> currentEmployeeRecords;
-
-    private static final DecimalFormat HOURS_FORMAT = new DecimalFormat("0.00");
-    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-    private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
+    private final List<RowMetric> displayedMetrics;
+    private List<AttendanceRecord> scopedRecords;
 
     public AttendancePanel(UserSession session) {
-        this.session = session;
-        this.attendanceRepository = new CsvAttendanceRepository();
-        this.employeeRepository = new CsvEmployeeRepository();
-        this.adjustmentService = new AttendanceAdjustmentService();
+        this(session, resolveDefaultScope(session));
+    }
 
-        this.employeeSearchField = new JTextField();
-        this.employeeComboBox = new JComboBox<>();
+    public AttendancePanel(UserSession session, ViewScope viewScope) {
+        this.session = session;
+        this.viewScope = viewScope;
+        this.attendanceRepository = new CsvAttendanceRepository();
         this.yearComboBox = new JComboBox<>();
         this.monthComboBox = new JComboBox<>();
-
-        this.selectedEmployeeValueLabel = new JLabel("-");
-        this.selectedEmployeeValueLabel.setFont(Theme.FONT_BODY);
-        this.daysWithLogsValueLabel = new JLabel("0");
-        this.totalWorkedHoursValueLabel = new JLabel("0.00");
-        this.totalLateHoursValueLabel = new JLabel("0.00");
-        this.totalUndertimeHoursValueLabel = new JLabel("0.00");
-        this.totalOvertimeHoursValueLabel = new JLabel("0.00");
-
-        this.attendanceTableModel = new DefaultTableModel(
-                new Object[]{
-                        "Date",
-                        "Time In",
-                        "Time Out",
-                        "Status",
-                        "Worked Hours",
-                        "Late Hours",
-                        "Undertime Hours",
-                        "Regular Hours",
-                        "Overtime Hours"
-                },
+        this.showAllCheckBox = new JCheckBox("Show All");
+        this.searchField = new JTextField();
+        this.tableModel = new DefaultTableModel(
+                new Object[] {"Employee ID", "Date", "Log In", "Log Out", "Total Hours", "Late", "Overtime Hrs"},
                 0
         ) {
             private static final long serialVersionUID = 1L;
@@ -139,1112 +104,407 @@ public class AttendancePanel extends JPanel {
                 return false;
             }
         };
-
-        this.adjustmentTableModel = new DefaultTableModel(
-                new Object[]{
-                        "Request ID",
-                        "Employee ID",
-                        "Employee Name",
-                        "Date",
-                        "Current In",
-                        "Current Out",
-                        "Proposed In",
-                        "Proposed Out",
-                        "Requested By",
-                        "Status"
-                },
-                0
-        ) {
-            private static final long serialVersionUID = 1L;
-
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        };
-
-        this.adjustmentEmployeeComboBox = new JComboBox<>();
-        this.adjustmentDateSpinner = new JSpinner(new SpinnerDateModel());
-        this.proposedTimeInSpinner = new JSpinner(new SpinnerDateModel());
-        this.proposedTimeOutSpinner = new JSpinner(new SpinnerDateModel());
-        this.adjustmentReasonArea = new JTextArea(4, 20);
-        this.adjustmentRemarksField = new JTextField();
-
-        this.adjustmentCardLayout = new CardLayout();
-        this.adjustmentContainer = new JPanel(adjustmentCardLayout);
-
-        this.allEmployees = employeeRepository.findAll();
-        this.currentEmployeeRecords = new ArrayList<>();
+        this.attendanceTable = new JTable(tableModel);
+        this.totalDaysPresentValueLabel = new JLabel("0");
+        this.totalHoursWorkedValueLabel = new JLabel("0.00");
+        this.lateCountValueLabel = new JLabel("0");
+        this.overtimeHoursValueLabel = new JLabel("0.00");
+        this.displayedMetrics = new ArrayList<>();
+        this.scopedRecords = new ArrayList<>();
 
         setLayout(new BorderLayout());
         setBackground(Theme.CONTENT_BACKGROUND);
-        setBorder(BorderFactory.createEmptyBorder(18,18,18,18));
+        setBorder(BorderFactory.createEmptyBorder(24, 24, 24, 24));
 
-        buildUI();
-        initializeEmployeeSelection();
-        loadAttendanceForCurrentSelection();
-        loadAdjustmentEmployeeDropdown();
-        loadAdjustmentTable();
+        buildUi();
+        loadRecordsFromCsv();
+        initializeFilterOptions();
+        refreshAttendanceTable();
     }
 
-    /**
-     * Builds the full Attendance panel UI.
-     */
-    private void buildUI() {
+    private static ViewScope resolveDefaultScope(UserSession session) {
+        if (RoleAccess.canViewAllAttendance(session)) {
+            return ViewScope.ALL;
+        }
+        if (RoleAccess.canViewTeamAttendance(session)) {
+            return ViewScope.TEAM;
+        }
+        return ViewScope.SELF;
+    }
 
+    private void buildUi() {
         JPanel wrapper = new JPanel();
         wrapper.setLayout(new BoxLayout(wrapper, BoxLayout.Y_AXIS));
         wrapper.setBackground(Theme.CONTENT_BACKGROUND);
 
-        JLabel titleLabel = new JLabel("Attendance");
+        JLabel titleLabel = new JLabel(viewScope.title);
         titleLabel.setFont(Theme.FONT_TITLE);
         titleLabel.setForeground(Theme.TEXT_PRIMARY);
         titleLabel.setAlignmentX(LEFT_ALIGNMENT);
 
-        JLabel subtitleLabel = new JLabel("View employee attendance records and monthly summaries.");
+        JLabel subtitleLabel = new JLabel(viewScope.subtitle);
         subtitleLabel.setFont(Theme.FONT_SUBTITLE);
         subtitleLabel.setForeground(Theme.TEXT_SECONDARY);
         subtitleLabel.setAlignmentX(LEFT_ALIGNMENT);
 
         wrapper.add(titleLabel);
-        wrapper.add(Box.createRigidArea(new Dimension(0, 4)));
+        wrapper.add(Box.createRigidArea(new Dimension(0, 6)));
         wrapper.add(subtitleLabel);
-        wrapper.add(Box.createRigidArea(new Dimension(0, 12)));
+        wrapper.add(Box.createRigidArea(new Dimension(0, 16)));
+        wrapper.add(buildSummaryCard());
+        wrapper.add(Box.createRigidArea(new Dimension(0, 14)));
+        wrapper.add(buildFilterCard());
+        wrapper.add(Box.createRigidArea(new Dimension(0, 16)));
+        wrapper.add(buildTableCard());
 
-        // Top compact toolbar card
-        JPanel toolbarCard = new JPanel();
-        toolbarCard.setLayout(new BoxLayout(toolbarCard, BoxLayout.Y_AXIS));
-        toolbarCard.setBackground(Theme.CARD_BACKGROUND);
-        toolbarCard.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(Theme.BORDER_LIGHT),
-                BorderFactory.createEmptyBorder(16, 16, 16, 16)
-        ));
-        toolbarCard.setAlignmentX(LEFT_ALIGNMENT);
-        toolbarCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 165));
+        add(wrapper, BorderLayout.CENTER);
+    }
 
-        // Row 1: employee area
-        JPanel employeeRow = new JPanel(new GridBagLayout());
-        employeeRow.setBackground(Theme.CARD_BACKGROUND);
-        employeeRow.setAlignmentX(LEFT_ALIGNMENT);
-
-        GridBagConstraints gbcEmp = new GridBagConstraints();
-        gbcEmp.insets = new java.awt.Insets(4, 4, 4, 12);
-        gbcEmp.anchor = GridBagConstraints.WEST;
-        gbcEmp.fill = GridBagConstraints.HORIZONTAL;
-        gbcEmp.gridy = 0;
-
-        if (canViewOtherEmployees()) {
-            JLabel searchLabel = new JLabel("Search:");
-            searchLabel.setFont(Theme.FONT_BODY);
-            searchLabel.setForeground(Theme.TEXT_PRIMARY);
-
-            employeeSearchField.setFont(Theme.FONT_BODY);
-            employeeSearchField.setPreferredSize(new Dimension(260, 34));
-            employeeSearchField.setMaximumSize(new Dimension(260, 34));
-
-            JButton searchButton = new JButton("Search");
-            searchButton.setFont(Theme.FONT_BUTTON);
-            searchButton.setBackground(Theme.PRIMARY);
-            searchButton.setForeground(Color.WHITE);
-            searchButton.setFocusPainted(false);
-            searchButton.setPreferredSize(new Dimension(110, 36));
-
-            JLabel employeeLabel = new JLabel("Employee:");
-            employeeLabel.setFont(Theme.FONT_BODY);
-            employeeLabel.setForeground(Theme.TEXT_PRIMARY);
-
-            employeeComboBox.setFont(Theme.FONT_BODY);
-            employeeComboBox.setPreferredSize(new Dimension(420, 34));
-            employeeComboBox.setMaximumSize(new Dimension(420, 34));
-
-            gbcEmp.gridx = 0;
-            gbcEmp.weightx = 0;
-            employeeRow.add(searchLabel, gbcEmp);
-
-            gbcEmp.gridx = 1;
-            gbcEmp.weightx = 0.25;
-            employeeRow.add(employeeSearchField, gbcEmp);
-
-            gbcEmp.gridx = 2;
-            gbcEmp.weightx = 0;
-            employeeRow.add(searchButton, gbcEmp);
-
-            gbcEmp.gridx = 3;
-            gbcEmp.weightx = 0;
-            employeeRow.add(employeeLabel, gbcEmp);
-
-            gbcEmp.gridx = 4;
-            gbcEmp.weightx = 0.45;
-            employeeRow.add(employeeComboBox, gbcEmp);
-
-            searchButton.addActionListener(e -> filterEmployeeDropdown());
-
-            employeeComboBox.addActionListener(e -> {
-                populateYearOptions();
-                refreshMonthOptions();
-                loadAttendanceData();
-                updateSelectedEmployeeLabel();
-            });
-
-        } else {
-            JLabel selfOnlyLabel = new JLabel("You can only view your own attendance records.");
-            selfOnlyLabel.setFont(Theme.FONT_BODY);
-            selfOnlyLabel.setForeground(Theme.TEXT_SECONDARY);
-
-            gbcEmp.gridx = 0;
-            gbcEmp.weightx = 1.0;
-            employeeRow.add(selfOnlyLabel, gbcEmp);
-
-            Employee self = employeeRepository.findById(session.getEmployeeId());
-            employeeComboBox.removeAllItems();
-            if (self != null) {
-                employeeComboBox.addItem(new EmployeeItem(self));
-                employeeComboBox.setSelectedIndex(0);
-            }
-        }
-
-        // Row 2: filters and actions
-        JPanel filterRow = new JPanel(new BorderLayout());
-        filterRow.setBackground(Theme.CARD_BACKGROUND);
-        filterRow.setAlignmentX(LEFT_ALIGNMENT);
-
-        JPanel filterLeft = new JPanel();
-        filterLeft.setBackground(Theme.CARD_BACKGROUND);
-        filterLeft.setLayout(new BoxLayout(filterLeft, BoxLayout.X_AXIS));
-
-        JLabel yearLabel = new JLabel("Year:");
-        yearLabel.setFont(Theme.FONT_BODY);
-        yearLabel.setForeground(Theme.TEXT_PRIMARY);
-
-        JLabel monthLabel = new JLabel("Month:");
-        monthLabel.setFont(Theme.FONT_BODY);
-        monthLabel.setForeground(Theme.TEXT_PRIMARY);
-
-        yearComboBox.setFont(Theme.FONT_BODY);
-        yearComboBox.setPreferredSize(new Dimension(120, 34));
-        yearComboBox.setMaximumSize(new Dimension(120, 34));
-
-        monthComboBox.setFont(Theme.FONT_BODY);
-        monthComboBox.setPreferredSize(new Dimension(210, 34));
-        monthComboBox.setMaximumSize(new Dimension(210, 34));
-
-        filterLeft.add(yearLabel);
-        filterLeft.add(Box.createRigidArea(new Dimension(10, 0)));
-        filterLeft.add(yearComboBox);
-        filterLeft.add(Box.createRigidArea(new Dimension(20, 0)));
-        filterLeft.add(monthLabel);
-        filterLeft.add(Box.createRigidArea(new Dimension(10, 0)));
-        filterLeft.add(monthComboBox);
-
-        JPanel filterRight = new JPanel();
-        filterRight.setBackground(Theme.CARD_BACKGROUND);
-        filterRight.setLayout(new BoxLayout(filterRight, BoxLayout.X_AXIS));
-
-        JButton adjustAttendanceButton = new JButton("Open Attendance Adjustment");
-        adjustAttendanceButton.setFont(Theme.FONT_BUTTON);
-        adjustAttendanceButton.setBackground(Theme.PRIMARY);
-        adjustAttendanceButton.setForeground(Color.WHITE);
-        adjustAttendanceButton.setFocusPainted(false);
-        adjustAttendanceButton.setPreferredSize(new Dimension(170, 40));
-        adjustAttendanceButton.setMinimumSize(new Dimension(170, 40));
-        adjustAttendanceButton.setMaximumSize(new Dimension(170, 40));
-
-        JButton reloadButton = new JButton("Load Attendance");
-        reloadButton.setFont(Theme.FONT_BUTTON);
-        reloadButton.setBackground(Theme.PRIMARY);
-        reloadButton.setForeground(Color.WHITE);
-        reloadButton.setFocusPainted(false);
-        reloadButton.setPreferredSize(new Dimension(170, 40));
-        reloadButton.setMinimumSize(new Dimension(170, 40));
-        reloadButton.setMaximumSize(new Dimension(170, 40));
-
-        if (canAdjustAttendance()) {
-            filterRight.add(adjustAttendanceButton);
-            filterRight.add(Box.createRigidArea(new Dimension(10, 0)));
-        }
-
-        filterRight.add(reloadButton);
-
-        filterRow.add(filterLeft, BorderLayout.WEST);
-        filterRow.add(filterRight, BorderLayout.EAST);
-
-        toolbarCard.add(employeeRow);
-        toolbarCard.add(Box.createRigidArea(new Dimension(0, 10)));
-        toolbarCard.add(filterRow);
-
-        wrapper.add(toolbarCard);
-        wrapper.add(Box.createRigidArea(new Dimension(0, 12)));
-
-        // Embedded adjustment section
-        adjustmentContainer.setBackground(Theme.CONTENT_BACKGROUND);
-        adjustmentContainer.setAlignmentX(LEFT_ALIGNMENT);
-
-        JPanel hiddenPanel = new JPanel();
-        hiddenPanel.setBackground(Theme.CONTENT_BACKGROUND);
-        hiddenPanel.setPreferredSize(new Dimension(0, 0));
-        hiddenPanel.setMaximumSize(new Dimension(0, 0));
-        hiddenPanel.setMinimumSize(new Dimension(0, 0));
-
-        JPanel visiblePanel = buildEmbeddedAdjustmentSection();
-
-        adjustmentContainer.add(hiddenPanel, ADJUSTMENT_HIDDEN);
-        adjustmentContainer.add(visiblePanel, ADJUSTMENT_VISIBLE);
-        adjustmentCardLayout.show(adjustmentContainer, ADJUSTMENT_HIDDEN);
-
-        wrapper.add(adjustmentContainer);
-        wrapper.add(Box.createRigidArea(new Dimension(0, 12)));
-
-        // Summary card
-        JPanel summaryCard = new JPanel(new GridLayout(1, 6, 14, 0));
+    private JPanel buildSummaryCard() {
+        JPanel summaryCard = new JPanel(new java.awt.GridLayout(1, 4, 12, 0));
         summaryCard.setBackground(Theme.CARD_BACKGROUND);
         summaryCard.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Theme.BORDER_LIGHT),
-                BorderFactory.createEmptyBorder(16, 16, 16, 16)
+                BorderFactory.createEmptyBorder(14, 14, 14, 14)
         ));
         summaryCard.setAlignmentX(LEFT_ALIGNMENT);
-        summaryCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 100));
+        summaryCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 104));
 
-        summaryCard.add(createSummaryItem("Employee", selectedEmployeeValueLabel));
-        summaryCard.add(createSummaryItem("Days with Logs", daysWithLogsValueLabel));
-        summaryCard.add(createSummaryItem("Worked Hours", totalWorkedHoursValueLabel));
-        summaryCard.add(createSummaryItem("Late Hours", totalLateHoursValueLabel));
-        summaryCard.add(createSummaryItem("Undertime Hours", totalUndertimeHoursValueLabel));
-        summaryCard.add(createSummaryItem("Overtime Hours", totalOvertimeHoursValueLabel));
+        summaryCard.add(createSummaryTile("Total Days Present", totalDaysPresentValueLabel));
+        summaryCard.add(createSummaryTile("Total Hours Worked", totalHoursWorkedValueLabel));
+        summaryCard.add(createSummaryTile("Late Count", lateCountValueLabel));
+        summaryCard.add(createSummaryTile("Overtime Hours", overtimeHoursValueLabel));
+        return summaryCard;
+    }
 
-        wrapper.add(summaryCard);
-        wrapper.add(Box.createRigidArea(new Dimension(0, 16)));
-
-        // Attendance table card
-        JPanel tableCard = new JPanel(new BorderLayout());
-        tableCard.setBackground(Theme.CARD_BACKGROUND);
-        tableCard.setBorder(BorderFactory.createCompoundBorder(
+    private JPanel buildFilterCard() {
+        JPanel filterCard = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 10));
+        filterCard.setBackground(Theme.CARD_BACKGROUND);
+        filterCard.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Theme.BORDER_LIGHT),
-                BorderFactory.createEmptyBorder(0, 0, 0, 0)
+                BorderFactory.createEmptyBorder(8, 8, 8, 8)
         ));
-        tableCard.setAlignmentX(LEFT_ALIGNMENT);
+        filterCard.setAlignmentX(LEFT_ALIGNMENT);
+        filterCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 72));
 
-        JTable attendanceTable = new JTable(attendanceTableModel);
-        attendanceTable.setRowHeight(28);
-        attendanceTable.setFont(Theme.FONT_BODY);
-        attendanceTable.getTableHeader().setFont(Theme.FONT_BUTTON);
-        attendanceTable.setFillsViewportHeight(true);
-        attendanceTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        JLabel scopeLabel = new JLabel("Scope: " + buildScopeCaption());
+        scopeLabel.setFont(Theme.FONT_BODY);
+        scopeLabel.setForeground(Theme.TEXT_PRIMARY);
 
-        attendanceTable.getColumnModel().getColumn(0).setPreferredWidth(110); // Date
-        attendanceTable.getColumnModel().getColumn(1).setPreferredWidth(90);  // Time In
-        attendanceTable.getColumnModel().getColumn(2).setPreferredWidth(90);  // Time Out
-        attendanceTable.getColumnModel().getColumn(3).setPreferredWidth(120); // Status
-        attendanceTable.getColumnModel().getColumn(4).setPreferredWidth(110); // Worked Hours
-        attendanceTable.getColumnModel().getColumn(5).setPreferredWidth(100); // Late Hours
-        attendanceTable.getColumnModel().getColumn(6).setPreferredWidth(130); // Undertime Hours
-        attendanceTable.getColumnModel().getColumn(7).setPreferredWidth(110); // Regular Hours
-        attendanceTable.getColumnModel().getColumn(8).setPreferredWidth(115); // Overtime Hours
+        yearComboBox.setFont(Theme.FONT_BODY);
+        yearComboBox.setPreferredSize(new Dimension(120, 34));
+        monthComboBox.setFont(Theme.FONT_BODY);
+        monthComboBox.setPreferredSize(new Dimension(120, 34));
 
-        JScrollPane attendanceScrollPane = new JScrollPane(attendanceTable);
-        attendanceScrollPane.setPreferredSize(new Dimension(1120, 430));
+        searchField.setFont(Theme.FONT_BODY);
+        searchField.setPreferredSize(new Dimension(180, 34));
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                refreshAttendanceTable();
+            }
 
-        tableCard.add(attendanceScrollPane, BorderLayout.CENTER);
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                refreshAttendanceTable();
+            }
 
-        wrapper.add(tableCard);
-
-        JScrollPane pageScrollPane = new JScrollPane(wrapper);
-        pageScrollPane.setBorder(null);
-        pageScrollPane.getVerticalScrollBar().setUnitIncrement(16);
-
-        add(pageScrollPane, BorderLayout.CENTER);
-
-        // Events
-        yearComboBox.addActionListener(e -> {
-            refreshMonthOptions();
-            loadAttendanceData();
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                refreshAttendanceTable();
+            }
         });
 
-        monthComboBox.addActionListener(e -> loadAttendanceData());
-        reloadButton.addActionListener(e -> loadAttendanceForCurrentSelection());
+        showAllCheckBox.setFont(Theme.FONT_BODY);
+        showAllCheckBox.setOpaque(false);
+        showAllCheckBox.addActionListener(e -> {
+            boolean showAll = showAllCheckBox.isSelected();
+            yearComboBox.setEnabled(!showAll);
+            monthComboBox.setEnabled(!showAll);
+            refreshAttendanceTable();
+        });
 
-        if (canAdjustAttendance()) {
-            adjustAttendanceButton.addActionListener(e -> toggleAdjustmentSection());
-        }
+        JButton applyButton = new JButton("Apply Filter");
+        applyButton.setFont(Theme.FONT_BUTTON);
+        applyButton.setBackground(Theme.PRIMARY);
+        applyButton.setForeground(Color.WHITE);
+        applyButton.setFocusPainted(false);
+        applyButton.addActionListener(e -> refreshAttendanceTable());
+
+        filterCard.add(scopeLabel);
+        filterCard.add(Box.createRigidArea(new Dimension(12, 0)));
+        filterCard.add(new JLabel("Year:"));
+        filterCard.add(yearComboBox);
+        filterCard.add(new JLabel("Month:"));
+        filterCard.add(monthComboBox);
+        filterCard.add(new JLabel("Search:"));
+        filterCard.add(searchField);
+        filterCard.add(showAllCheckBox);
+        filterCard.add(applyButton);
+        return filterCard;
     }
 
-    /**
-     * Embedded adjustment section shown inside Attendance page.
-     */
-    private JPanel buildEmbeddedAdjustmentSection() {
-
-        JPanel sectionWrapper = new JPanel();
-        sectionWrapper.setLayout(new BoxLayout(sectionWrapper, BoxLayout.Y_AXIS));
-        sectionWrapper.setBackground(Theme.CONTENT_BACKGROUND);
-        sectionWrapper.setAlignmentX(LEFT_ALIGNMENT);
-
-        JPanel formCard = new JPanel();
-        formCard.setLayout(new BoxLayout(formCard, BoxLayout.Y_AXIS));
-        formCard.setBackground(Theme.CARD_BACKGROUND);
-        formCard.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(Theme.BORDER_LIGHT),
-                BorderFactory.createEmptyBorder(16, 16, 16, 16)
-        ));
-        formCard.setAlignmentX(LEFT_ALIGNMENT);
-        formCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 350));
-
-        JLabel heading = new JLabel("Attendance Adjustment Request");
-        heading.setFont(Theme.FONT_HEADING);
-        heading.setForeground(Theme.TEXT_PRIMARY);
-        heading.setAlignmentX(LEFT_ALIGNMENT);
-
-        JPanel row1 = new JPanel(new GridBagLayout());
-        row1.setBackground(Theme.CARD_BACKGROUND);
-        row1.setAlignmentX(LEFT_ALIGNMENT);
-
-        GridBagConstraints gbc1 = new GridBagConstraints();
-        gbc1.insets = new java.awt.Insets(4, 4, 4, 12);
-        gbc1.anchor = GridBagConstraints.WEST;
-        gbc1.fill = GridBagConstraints.HORIZONTAL;
-
-        JLabel employeeLabel = new JLabel("Employee:");
-        employeeLabel.setFont(Theme.FONT_BODY);
-
-        adjustmentEmployeeComboBox.setFont(Theme.FONT_BODY);
-        adjustmentEmployeeComboBox.setPreferredSize(new Dimension(420, 34));
-        adjustmentEmployeeComboBox.setMaximumSize(new Dimension(420, 34));
-
-        JLabel dateLabel = new JLabel("Date:");
-        dateLabel.setFont(Theme.FONT_BODY);
-
-        adjustmentDateSpinner.setFont(Theme.FONT_BODY);
-        adjustmentDateSpinner.setPreferredSize(new Dimension(170, 34));
-        adjustmentDateSpinner.setMaximumSize(new Dimension(170, 34));
-        JSpinner.DateEditor dateEditor = new JSpinner.DateEditor(adjustmentDateSpinner, "yyyy-MM-dd");
-        adjustmentDateSpinner.setEditor(dateEditor);
-
-        gbc1.gridx = 0;
-        gbc1.gridy = 0;
-        gbc1.weightx = 0;
-        row1.add(employeeLabel, gbc1);
-
-        gbc1.gridx = 1;
-        gbc1.weightx = 1.0;
-        row1.add(adjustmentEmployeeComboBox, gbc1);
-
-        gbc1.gridx = 2;
-        gbc1.weightx = 0;
-        row1.add(dateLabel, gbc1);
-
-        gbc1.gridx = 3;
-        gbc1.weightx = 0.35;
-        row1.add(adjustmentDateSpinner, gbc1);
-
-        JPanel row2 = new JPanel(new GridBagLayout());
-        row2.setBackground(Theme.CARD_BACKGROUND);
-        row2.setAlignmentX(LEFT_ALIGNMENT);
-
-        GridBagConstraints gbc2 = new GridBagConstraints();
-        gbc2.insets = new java.awt.Insets(4, 4, 4, 12);
-        gbc2.anchor = GridBagConstraints.WEST;
-        gbc2.fill = GridBagConstraints.HORIZONTAL;
-
-        JLabel timeInLabel = new JLabel("Proposed Time In:");
-        timeInLabel.setFont(Theme.FONT_BODY);
-
-        proposedTimeInSpinner.setFont(Theme.FONT_BODY);
-        proposedTimeInSpinner.setPreferredSize(new Dimension(160, 34));
-        proposedTimeInSpinner.setMaximumSize(new Dimension(160, 34));
-        JSpinner.DateEditor timeInEditor = new JSpinner.DateEditor(proposedTimeInSpinner, "hh:mm a");
-        proposedTimeInSpinner.setEditor(timeInEditor);
-
-        JLabel timeOutLabel = new JLabel("Proposed Time Out:");
-        timeOutLabel.setFont(Theme.FONT_BODY);
-
-        proposedTimeOutSpinner.setFont(Theme.FONT_BODY);
-        proposedTimeOutSpinner.setPreferredSize(new Dimension(160, 34));
-        proposedTimeOutSpinner.setMaximumSize(new Dimension(160, 34));
-        JSpinner.DateEditor timeOutEditor = new JSpinner.DateEditor(proposedTimeOutSpinner, "hh:mm a");
-        proposedTimeOutSpinner.setEditor(timeOutEditor);
-
-        gbc2.gridx = 0;
-        gbc2.gridy = 0;
-        gbc2.weightx = 0;
-        row2.add(timeInLabel, gbc2);
-
-        gbc2.gridx = 1;
-        gbc2.weightx = 1.0;
-        row2.add(proposedTimeInSpinner, gbc2);
-
-        gbc2.gridx = 2;
-        gbc2.weightx = 0;
-        row2.add(timeOutLabel, gbc2);
-
-        gbc2.gridx = 3;
-        gbc2.weightx = 0.35;
-        row2.add(proposedTimeOutSpinner, gbc2);
-
-        JLabel reasonLabel = new JLabel("Reason:");
-        reasonLabel.setFont(Theme.FONT_BODY);
-        reasonLabel.setAlignmentX(LEFT_ALIGNMENT);
-
-        adjustmentReasonArea.setLineWrap(true);
-        adjustmentReasonArea.setWrapStyleWord(true);
-        adjustmentReasonArea.setFont(Theme.FONT_BODY);
-        adjustmentReasonArea.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-
-        JScrollPane reasonScroll = new JScrollPane(adjustmentReasonArea);
-        reasonScroll.setPreferredSize(new Dimension(900, 120));
-        reasonScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
-        reasonScroll.setAlignmentX(LEFT_ALIGNMENT);
-
-        JPanel actionRow = new JPanel(new BorderLayout());
-        actionRow.setBackground(Theme.CARD_BACKGROUND);
-        actionRow.setAlignmentX(LEFT_ALIGNMENT);
-
-        JPanel leftButtons = new JPanel();
-        leftButtons.setBackground(Theme.CARD_BACKGROUND);
-        leftButtons.setLayout(new BoxLayout(leftButtons, BoxLayout.X_AXIS));
-
-        JButton submitButton = new JButton("Submit Request");
-        submitButton.setFont(Theme.FONT_BUTTON);
-        submitButton.setBackground(Theme.PRIMARY);
-        submitButton.setForeground(Color.WHITE);
-        submitButton.setFocusPainted(false);
-        submitButton.setPreferredSize(new Dimension(160, 40));
-        submitButton.setMaximumSize(new Dimension(160, 40));
-
-        if (canSubmitAdjustmentRequests()) {
-            leftButtons.add(submitButton);
-        }
-
-        JPanel rightButtons = new JPanel();
-        rightButtons.setBackground(Theme.CARD_BACKGROUND);
-        rightButtons.setLayout(new BoxLayout(rightButtons, BoxLayout.X_AXIS));
-
-        JLabel remarksLabel = new JLabel("Remarks:");
-        remarksLabel.setFont(Theme.FONT_BODY);
-
-        adjustmentRemarksField.setFont(Theme.FONT_BODY);
-        adjustmentRemarksField.setPreferredSize(new Dimension(260, 34));
-        adjustmentRemarksField.setMaximumSize(new Dimension(260, 34));
-
-        JButton approveButton = new JButton("Approve Selected");
-        approveButton.setFont(Theme.FONT_BUTTON);
-        approveButton.setBackground(Theme.PRIMARY);
-        approveButton.setForeground(Color.WHITE);
-        approveButton.setFocusPainted(false);
-        approveButton.setPreferredSize(new Dimension(160, 40));
-
-        JButton rejectButton = new JButton("Reject Selected");
-        rejectButton.setFont(Theme.FONT_BUTTON);
-        rejectButton.setBackground(new Color(200, 80, 80));
-        rejectButton.setForeground(Color.WHITE);
-        rejectButton.setFocusPainted(false);
-        rejectButton.setPreferredSize(new Dimension(150, 40));
-
-        if (canApproveAdjustmentRequests()) {
-            rightButtons.add(remarksLabel);
-            rightButtons.add(Box.createRigidArea(new Dimension(8, 0)));
-            rightButtons.add(adjustmentRemarksField);
-            rightButtons.add(Box.createRigidArea(new Dimension(10, 0)));
-            rightButtons.add(approveButton);
-            rightButtons.add(Box.createRigidArea(new Dimension(8, 0)));
-            rightButtons.add(rejectButton);
-        }
-
-        actionRow.add(leftButtons, BorderLayout.WEST);
-        actionRow.add(rightButtons, BorderLayout.EAST);
-
-        formCard.add(heading);
-        formCard.add(Box.createRigidArea(new Dimension(0, 10)));
-        formCard.add(row1);
-        formCard.add(Box.createRigidArea(new Dimension(0, 10)));
-        formCard.add(row2);
-        formCard.add(Box.createRigidArea(new Dimension(0, 10)));
-        formCard.add(reasonLabel);
-        formCard.add(Box.createRigidArea(new Dimension(0, 4)));
-        formCard.add(reasonScroll);
-        formCard.add(Box.createRigidArea(new Dimension(0, 10)));
-        formCard.add(actionRow);
-
-        JPanel tableCard = new JPanel(new BorderLayout());
-        tableCard.setBackground(Theme.CARD_BACKGROUND);
-        tableCard.setBorder(BorderFactory.createCompoundBorder(
+    private JPanel buildTableCard() {
+        JPanel card = new JPanel(new BorderLayout());
+        card.setBackground(Theme.CARD_BACKGROUND);
+        card.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Theme.BORDER_LIGHT),
                 BorderFactory.createEmptyBorder(0, 0, 0, 0)
         ));
-        tableCard.setAlignmentX(LEFT_ALIGNMENT);
+        card.setAlignmentX(LEFT_ALIGNMENT);
 
-        JTable adjustmentTable = new JTable(adjustmentTableModel);
-        adjustmentTable.setRowHeight(28);
-        adjustmentTable.setFont(Theme.FONT_BODY);
-        adjustmentTable.getTableHeader().setFont(Theme.FONT_BUTTON);
-        adjustmentTable.setFillsViewportHeight(true);
-        adjustmentTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        attendanceTable.setFont(Theme.FONT_BODY);
+        attendanceTable.setRowHeight(30);
+        attendanceTable.getTableHeader().setFont(Theme.FONT_BUTTON);
+        attendanceTable.getTableHeader().setBackground(new Color(244, 247, 255));
+        attendanceTable.getTableHeader().setForeground(Theme.TEXT_PRIMARY);
+        attendanceTable.setFillsViewportHeight(true);
+        attendanceTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+            private static final long serialVersionUID = 1L;
 
-        adjustmentTable.getColumnModel().getColumn(0).setPreferredWidth(90);   // Request ID
-        adjustmentTable.getColumnModel().getColumn(1).setPreferredWidth(90);   // Employee ID
-        adjustmentTable.getColumnModel().getColumn(2).setPreferredWidth(180);  // Employee Name
-        adjustmentTable.getColumnModel().getColumn(3).setPreferredWidth(110);  // Date
-        adjustmentTable.getColumnModel().getColumn(4).setPreferredWidth(90);   // Current In
-        adjustmentTable.getColumnModel().getColumn(5).setPreferredWidth(90);   // Current Out
-        adjustmentTable.getColumnModel().getColumn(6).setPreferredWidth(95);   // Proposed In
-        adjustmentTable.getColumnModel().getColumn(7).setPreferredWidth(95);   // Proposed Out
-        adjustmentTable.getColumnModel().getColumn(8).setPreferredWidth(180);  // Requested By
-        adjustmentTable.getColumnModel().getColumn(9).setPreferredWidth(100);  // Status
-        
-        JScrollPane adjustmentScrollPane = new JScrollPane(adjustmentTable);
-        adjustmentScrollPane.setPreferredSize(new Dimension(1120, 260));
+            @Override
+            public Component getTableCellRendererComponent(
+                    JTable table,
+                    Object value,
+                    boolean isSelected,
+                    boolean hasFocus,
+                    int row,
+                    int column
+            ) {
+                Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                if (isSelected) {
+                    return c;
+                }
 
-        tableCard.add(adjustmentScrollPane, BorderLayout.CENTER);
+                int modelRow = table.convertRowIndexToModel(row);
+                if (modelRow < 0 || modelRow >= displayedMetrics.size()) {
+                    c.setBackground(Color.WHITE);
+                    c.setForeground(Theme.TEXT_PRIMARY);
+                    return c;
+                }
 
-        sectionWrapper.add(formCard);
-        sectionWrapper.add(Box.createRigidArea(new Dimension(0, 10)));
-        sectionWrapper.add(tableCard);
+                RowMetric metric = displayedMetrics.get(modelRow);
+                if (metric.isLate) {
+                    c.setBackground(new Color(255, 235, 235));
+                    c.setForeground(new Color(140, 35, 35));
+                } else if (metric.overtimeHours > 0.0) {
+                    c.setBackground(new Color(232, 248, 232));
+                    c.setForeground(new Color(28, 92, 28));
+                } else {
+                    c.setBackground(Color.WHITE);
+                    c.setForeground(Theme.TEXT_PRIMARY);
+                }
+                return c;
+            }
+        });
 
-        submitButton.addActionListener(e -> submitEmbeddedAdjustmentRequest());
-        approveButton.addActionListener(e -> approveSelectedAdjustmentRequest(adjustmentTable));
-        rejectButton.addActionListener(e -> rejectSelectedAdjustmentRequest(adjustmentTable));
-
-        return sectionWrapper;
+        JScrollPane tableScrollPane = new JScrollPane(attendanceTable);
+        tableScrollPane.setPreferredSize(new Dimension(1050, 480));
+        card.add(tableScrollPane, BorderLayout.CENTER);
+        return card;
     }
 
-    /**
-     * Creates one summary block.
-     */
-    private JPanel createSummaryItem(String labelText, JLabel valueLabel) {
-
+    private JPanel createSummaryTile(String labelText, JLabel valueLabel) {
         JPanel itemPanel = new JPanel();
         itemPanel.setBackground(Theme.CARD_BACKGROUND);
         itemPanel.setLayout(new BoxLayout(itemPanel, BoxLayout.Y_AXIS));
-        itemPanel.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 6));
+        itemPanel.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
 
-        JLabel label = new JLabel("<html><div style='width:120px; text-align:left;'>" + labelText + "</div></html>");
+        JLabel label = new JLabel(labelText);
         label.setFont(Theme.FONT_SMALL);
         label.setForeground(Theme.TEXT_SECONDARY);
 
-        valueLabel.setFont(Theme.FONT_BODY);
+        valueLabel.setFont(Theme.FONT_HEADING);
         valueLabel.setForeground(Theme.TEXT_PRIMARY);
 
         itemPanel.add(label);
         itemPanel.add(Box.createRigidArea(new Dimension(0, 6)));
         itemPanel.add(valueLabel);
-
         return itemPanel;
     }
 
-    /**
-     * Initializes employee selection depending on role.
-     */
-    private void initializeEmployeeSelection() {
+    private void loadRecordsFromCsv() {
+        Set<String> scopedEmployeeIds = resolveScopedEmployeeIds();
+        List<AttendanceRecord> loaded = attendanceRepository.findAll();
 
-        if (canViewOtherEmployees()) {
-            populateEmployeeDropdown(allEmployees);
-            selectEmployeeInDropdown(session.getEmployeeId());
-        } else {
-            Employee self = employeeRepository.findById(session.getEmployeeId());
-            List<Employee> selfOnly = new ArrayList<>();
-
-            if (self != null) {
-                selfOnly.add(self);
-            }
-
-            populateEmployeeDropdown(selfOnly);
-            selectEmployeeInDropdown(session.getEmployeeId());
-        }
-
-        updateSelectedEmployeeLabel();
-        populateYearOptions();
-        refreshMonthOptions();
-    }
-
-    /**
-     * Loads adjustment employee dropdown.
-     */
-    private void loadAdjustmentEmployeeDropdown() {
-        adjustmentEmployeeComboBox.removeAllItems();
-
-        List<Employee> employees = new ArrayList<>();
-
-        if (canViewOtherEmployees()) {
-            employees.addAll(employeeRepository.findAll());
-            employees.sort(Comparator.comparing(Employee::getFullName));
-        } else {
-            Employee self = employeeRepository.findById(session.getEmployeeId());
-            if (self != null) {
-                employees.add(self);
+        scopedRecords = new ArrayList<>();
+        for (AttendanceRecord record : loaded) {
+            if (scopedEmployeeIds.contains(record.getEmployeeId())) {
+                scopedRecords.add(record);
             }
         }
 
-        for (Employee employee : employees) {
-            adjustmentEmployeeComboBox.addItem(new EmployeeItem(employee));
-        }
-
-        // default select current user if present
-        for (int i = 0; i < adjustmentEmployeeComboBox.getItemCount(); i++) {
-            EmployeeItem item = adjustmentEmployeeComboBox.getItemAt(i);
-            if (item.getEmployee().getEmployeeId().equals(session.getEmployeeId())) {
-                adjustmentEmployeeComboBox.setSelectedIndex(i);
-                break;
-            }
-        }
+        scopedRecords.sort(Comparator.comparing(AttendanceRecord::getDate));
     }
 
-    /**
-     * Filters employee dropdown.
-     */
-    private void filterEmployeeDropdown() {
+    private Set<String> resolveScopedEmployeeIds() {
+        Set<String> ids = new LinkedHashSet<>();
+        ids.add(session.getEmployeeId());
 
-        String keyword = employeeSearchField.getText() == null
-                ? ""
-                : employeeSearchField.getText().trim().toLowerCase(Locale.ENGLISH);
-
-        List<Employee> filtered = new ArrayList<>();
-
-        for (Employee employee : allEmployees) {
-            String fullText = (employee.getEmployeeId() + " " + employee.getFullName() + " " + employee.getPosition())
-                    .toLowerCase(Locale.ENGLISH);
-
-            if (keyword.isEmpty() || fullText.contains(keyword)) {
-                filtered.add(employee);
+        if (viewScope == ViewScope.TEAM) {
+            ids.addAll(RoleAccess.resolveSubordinateEmployeeIds(session));
+        } else if (viewScope == ViewScope.ALL) {
+            ids.clear();
+            for (AttendanceRecord record : attendanceRepository.findAll()) {
+                ids.add(record.getEmployeeId());
             }
         }
 
-        populateEmployeeDropdown(filtered);
+        return ids;
     }
 
-    /**
-     * Fills employee selector.
-     */
-    private void populateEmployeeDropdown(List<Employee> employees) {
-        employeeComboBox.removeAllItems();
-
-        employees.sort(Comparator.comparing(Employee::getFullName));
-
-        for (Employee employee : employees) {
-            employeeComboBox.addItem(new EmployeeItem(employee));
-        }
-    }
-
-    /**
-     * Select employee by ID.
-     */
-    private void selectEmployeeInDropdown(String employeeId) {
-        for (int i = 0; i < employeeComboBox.getItemCount(); i++) {
-            EmployeeItem item = employeeComboBox.getItemAt(i);
-            if (item.getEmployee().getEmployeeId().equals(employeeId)) {
-                employeeComboBox.setSelectedIndex(i);
-                return;
-            }
-        }
-    }
-
-    /**
-     * Toggle embedded adjustment section.
-     */
-    private void toggleAdjustmentSection() {
-        adjustmentVisible = !adjustmentVisible;
-
-        if (adjustmentVisible) {
-            adjustmentCardLayout.show(adjustmentContainer, ADJUSTMENT_VISIBLE);
-            loadAdjustmentTable();
-        } else {
-            adjustmentCardLayout.show(adjustmentContainer, ADJUSTMENT_HIDDEN);
-        }
-
-        revalidate();
-        repaint();
-    }
-
-    /**
-     * Loads attendance for current filter.
-     */
-    private void loadAttendanceForCurrentSelection() {
-        populateYearOptions();
-        refreshMonthOptions();
-        loadAttendanceData();
-        updateSelectedEmployeeLabel();
-    }
-
-    /**
-     * Loads year options.
-     */
-    private void populateYearOptions() {
+    private void initializeFilterOptions() {
         yearComboBox.removeAllItems();
+        monthComboBox.removeAllItems();
 
-        currentEmployeeRecords = attendanceRepository.findByEmployeeId(getSelectedEmployeeId());
-
-        List<Integer> years = new ArrayList<>();
-
-        for (AttendanceRecord record : currentEmployeeRecords) {
-            int year = record.getDate().getYear();
-            if (!years.contains(year)) {
-                years.add(year);
-            }
+        Set<Integer> years = new LinkedHashSet<>();
+        for (AttendanceRecord record : scopedRecords) {
+            years.add(record.getDate().getYear());
         }
 
-        years.sort(Integer::compareTo);
+        if (years.isEmpty()) {
+            years.add(java.time.LocalDate.now().getYear());
+        }
 
         for (Integer year : years) {
             yearComboBox.addItem(year);
         }
+        for (int month = 1; month <= 12; month++) {
+            monthComboBox.addItem(month);
+        }
 
-        if (yearComboBox.getItemCount() > 0) {
-            yearComboBox.setSelectedIndex(yearComboBox.getItemCount() - 1);
+        if (!scopedRecords.isEmpty()) {
+            AttendanceRecord latest = scopedRecords.get(scopedRecords.size() - 1);
+            yearComboBox.setSelectedItem(latest.getDate().getYear());
+            monthComboBox.setSelectedItem(latest.getDate().getMonthValue());
         }
     }
 
-    /**
-     * Loads month options.
-     */
-    private void refreshMonthOptions() {
-        monthComboBox.removeAllItems();
+    private void refreshAttendanceTable() {
+        tableModel.setRowCount(0);
+        displayedMetrics.clear();
 
         Integer selectedYear = (Integer) yearComboBox.getSelectedItem();
-        if (selectedYear == null) {
+        Integer selectedMonth = (Integer) monthComboBox.getSelectedItem();
+        boolean showAll = showAllCheckBox.isSelected();
+        String query = safeLower(searchField.getText());
+
+        if (!showAll && (selectedYear == null || selectedMonth == null)) {
             return;
         }
 
-        List<Integer> availableMonths = new ArrayList<>();
-
-        for (AttendanceRecord record : currentEmployeeRecords) {
-            if (record.getDate().getYear() == selectedYear) {
-                int month = record.getDate().getMonthValue();
-                if (!availableMonths.contains(month)) {
-                    availableMonths.add(month);
-                }
-            }
-        }
-
-        availableMonths.sort(Integer::compareTo);
-
-        for (Integer monthNumber : availableMonths) {
-            monthComboBox.addItem(new MonthItem(monthNumber));
-        }
-
-        if (monthComboBox.getItemCount() > 0) {
-            monthComboBox.setSelectedIndex(monthComboBox.getItemCount() - 1);
-        }
-    }
-
-    /**
-     * Loads attendance table and summary.
-     */
-    private void loadAttendanceData() {
-        attendanceTableModel.setRowCount(0);
-
-        Integer selectedYear = (Integer) yearComboBox.getSelectedItem();
-        MonthItem selectedMonth = (MonthItem) monthComboBox.getSelectedItem();
-
-        if (selectedYear == null || selectedMonth == null) {
-            updateSummary(0, 0.0, 0.0, 0.0, 0.0);
-            return;
-        }
-
-        List<AttendanceRecord> records = attendanceRepository.findByEmployeeIdAndMonth(
-                getSelectedEmployeeId(),
-                selectedYear,
-                selectedMonth.getMonthNumber()
-        );
-
-        if (records.isEmpty()) {
-            updateSummary(0, 0.0, 0.0, 0.0, 0.0);
-            return;
-        }
-
-        double totalWorkedHours = 0.0;
-        double totalLateHours = 0.0;
-        double totalUndertimeHours = 0.0;
+        int totalDaysPresent = 0;
+        int lateCount = 0;
+        double totalHoursWorked = 0.0;
         double totalOvertimeHours = 0.0;
 
-        for (AttendanceRecord record : records) {
+        for (AttendanceRecord record : scopedRecords) {
+            if (!showAll && (record.getDate().getYear() != selectedYear || record.getDate().getMonthValue() != selectedMonth)) {
+                continue;
+            }
+            if (!query.isEmpty() && !matchesSearch(record, query)) {
+                continue;
+            }
 
-            totalWorkedHours += record.getWorkedHours();
-            totalLateHours += record.getLateHours();
-            totalUndertimeHours += record.getUndertimeHours();
-            totalOvertimeHours += record.getOvertimeHours();
+            double workedHours = computeWorkedHours(record);
+            double overtimeHours = computeOvertimeHours(workedHours);
+            boolean isLate = isLate(record);
 
-            attendanceTableModel.addRow(new Object[]{
-                    record.getDate().format(DATE_FORMAT),
-                    record.getTimeIn() == null ? "" : record.getTimeIn().format(TIME_FORMAT),
-                    record.getTimeOut() == null ? "" : record.getTimeOut().format(TIME_FORMAT),
-                    record.getDayStatus(),
-                    HOURS_FORMAT.format(record.getWorkedHours()),
-                    HOURS_FORMAT.format(record.getLateHours()),
-                    HOURS_FORMAT.format(record.getUndertimeHours()),
-                    HOURS_FORMAT.format(record.getRegularHours()),
-                    HOURS_FORMAT.format(record.getOvertimeHours())
+            if (workedHours > 0.0) {
+                totalDaysPresent++;
+            }
+
+            totalHoursWorked += workedHours;
+            totalOvertimeHours += overtimeHours;
+            if (isLate) {
+                lateCount++;
+            }
+
+            displayedMetrics.add(new RowMetric(overtimeHours, isLate));
+            tableModel.addRow(new Object[] {
+                    record.getEmployeeId(),
+                    record.getDate().format(DATE_FMT),
+                    record.getTimeIn() == null ? "" : record.getTimeIn().format(TIME_FMT),
+                    record.getTimeOut() == null ? "" : record.getTimeOut().format(TIME_FMT),
+                    String.format(Locale.ENGLISH, "%.2f", workedHours),
+                    isLate ? "YES" : "NO",
+                    String.format(Locale.ENGLISH, "%.2f", overtimeHours)
             });
         }
 
-        updateSummary(
-                records.size(),
-                totalWorkedHours,
-                totalLateHours,
-                totalUndertimeHours,
-                totalOvertimeHours
-        );
+        totalDaysPresentValueLabel.setText(String.valueOf(totalDaysPresent));
+        totalHoursWorkedValueLabel.setText(String.format(Locale.ENGLISH, "%.2f", totalHoursWorked));
+        lateCountValueLabel.setText(String.valueOf(lateCount));
+        overtimeHoursValueLabel.setText(String.format(Locale.ENGLISH, "%.2f", totalOvertimeHours));
+        attendanceTable.repaint();
     }
 
-    /**
-     * Loads adjustment requests into embedded table.
-     */
-    private void loadAdjustmentTable() {
-        adjustmentTableModel.setRowCount(0);
+    private boolean matchesSearch(AttendanceRecord record, String query) {
+        String employeeId = safeLower(record.getEmployeeId());
+        String firstName = safeLower(record.getFirstName());
+        String lastName = safeLower(record.getLastName());
+        String fullName = safeLower(record.getFirstName() + " " + record.getLastName());
+        String dateText = safeLower(record.getDate().format(DATE_FMT));
 
-        List<AttendanceAdjustmentRequest> requests = adjustmentService.findAll();
+        return employeeId.contains(query)
+                || firstName.contains(query)
+                || lastName.contains(query)
+                || fullName.contains(query)
+                || dateText.contains(query);
+    }
 
-        for (AttendanceAdjustmentRequest request : requests) {
-            adjustmentTableModel.addRow(new Object[]{
-                    request.getRequestId(),
-                    request.getEmployeeId(),
-                    request.getEmployeeName(),
-                    request.getDate(),
-                    request.getCurrentTimeIn(),
-                    request.getCurrentTimeOut(),
-                    request.getProposedTimeIn(),
-                    request.getProposedTimeOut(),
-                    request.getRequestedByName(),
-                    request.getStatus()
-            });
+    private String buildScopeCaption() {
+        if (viewScope == ViewScope.ALL) {
+            return "ALL EMPLOYEES";
         }
-    }
-
-    /**
-     * Submit request from embedded section.
-     */
-    private void submitEmbeddedAdjustmentRequest() {
-
-        EmployeeItem selectedItem = (EmployeeItem) adjustmentEmployeeComboBox.getSelectedItem();
-        Employee currentUser = employeeRepository.findById(session.getEmployeeId());
-
-        if (selectedItem == null) {
-            JOptionPane.showMessageDialog(this, "Please select an employee.");
-            return;
+        if (viewScope == ViewScope.TEAM) {
+            return "SELF + TEAM";
         }
-
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
-        SimpleDateFormat timeFormat = new SimpleDateFormat("hh:mm a");
-
-        String selectedDate = dateFormat.format((Date) adjustmentDateSpinner.getValue());
-        String proposedTimeIn = timeFormat.format((Date) proposedTimeInSpinner.getValue());
-        String proposedTimeOut = timeFormat.format((Date) proposedTimeOutSpinner.getValue());
-
-        boolean success = adjustmentService.submitRequest(
-                selectedItem.getEmployee(),
-                currentUser,
-                selectedDate,
-                proposedTimeIn,
-                proposedTimeOut,
-                adjustmentReasonArea.getText().trim()
-        );
-
-        JOptionPane.showMessageDialog(this, adjustmentService.getLastMessage());
-
-        if (success) {
-            adjustmentDateSpinner.setValue(new Date());
-            proposedTimeInSpinner.setValue(new Date());
-            proposedTimeOutSpinner.setValue(new Date());
-            adjustmentReasonArea.setText("");
-            loadAdjustmentTable();
-            loadAttendanceForCurrentSelection();
-
-            adjustmentVisible = false;
-            adjustmentCardLayout.show(adjustmentContainer, ADJUSTMENT_HIDDEN);
-            revalidate();
-            repaint();
-        }
+        return "SELF";
     }
 
-    /**
-     * Approve selected request from embedded section.
-     */
-    private void approveSelectedAdjustmentRequest(JTable adjustmentTable) {
-
-        int selectedRow = adjustmentTable.getSelectedRow();
-        if (selectedRow < 0) {
-            JOptionPane.showMessageDialog(this, "Please select a request first.");
-            return;
-        }
-
-        String requestId = String.valueOf(adjustmentTableModel.getValueAt(selectedRow, 0));
-        Employee currentUser = employeeRepository.findById(session.getEmployeeId());
-
-        boolean success = adjustmentService.approveRequest(
-                requestId,
-                currentUser,
-                adjustmentRemarksField.getText().trim()
-        );
-        JOptionPane.showMessageDialog(this, adjustmentService.getLastMessage());
-
-        if (success) {
-            adjustmentRemarksField.setText("");
-            loadAdjustmentTable();
-            loadAttendanceForCurrentSelection();
-
-            adjustmentVisible = false;
-            adjustmentCardLayout.show(adjustmentContainer, ADJUSTMENT_HIDDEN);
-            revalidate();
-            repaint();
-        }
-    }
-
-    /**
-     * Reject selected request from embedded section.
-     */
-    private void rejectSelectedAdjustmentRequest(JTable adjustmentTable) {
-
-        int selectedRow = adjustmentTable.getSelectedRow();
-        if (selectedRow < 0) {
-            JOptionPane.showMessageDialog(this, "Please select a request first.");
-            return;
-        }
-
-        String requestId = String.valueOf(adjustmentTableModel.getValueAt(selectedRow, 0));
-        Employee currentUser = employeeRepository.findById(session.getEmployeeId());
-
-        boolean success = adjustmentService.rejectRequest(
-                requestId,
-                currentUser,
-                adjustmentRemarksField.getText().trim()
-        );
-
-        JOptionPane.showMessageDialog(this, adjustmentService.getLastMessage());
-
-        if (success) {
-            adjustmentRemarksField.setText("");
-            loadAdjustmentTable();
-
-            adjustmentVisible = false;
-            adjustmentCardLayout.show(adjustmentContainer, ADJUSTMENT_HIDDEN);
-            revalidate();
-            repaint();
-        }
-    }
-
-    /**
-     * Updates summary labels.
-     */
-    private void updateSummary(
-            int daysWithLogs,
-            double totalWorkedHours,
-            double totalLateHours,
-            double totalUndertimeHours,
-            double totalOvertimeHours
-    ) {
-        daysWithLogsValueLabel.setText(String.valueOf(daysWithLogs));
-        totalWorkedHoursValueLabel.setText(HOURS_FORMAT.format(totalWorkedHours));
-        totalLateHoursValueLabel.setText(HOURS_FORMAT.format(totalLateHours));
-        totalUndertimeHoursValueLabel.setText(HOURS_FORMAT.format(totalUndertimeHours));
-        totalOvertimeHoursValueLabel.setText(HOURS_FORMAT.format(totalOvertimeHours));
-    }
-
-    /**
-     * Updates selected employee label.
-     */
-    private void updateSelectedEmployeeLabel() {
-        EmployeeItem selectedItem = (EmployeeItem) employeeComboBox.getSelectedItem();
-
-        if (selectedItem == null) {
-            selectedEmployeeValueLabel.setText("-");
-            return;
-        }
-
-        selectedEmployeeValueLabel.setText(
-                selectedItem.getEmployee().getFullName() + " (" +
-                selectedItem.getEmployee().getEmployeeId() + ")"
-        );
-    }
-
-    /**
-     * Returns selected employee ID safely.
-     */
-    private String getSelectedEmployeeId() {
-        EmployeeItem selectedItem = (EmployeeItem) employeeComboBox.getSelectedItem();
-
-        if (selectedItem == null) {
-            return session.getEmployeeId();
-        }
-
-        return selectedItem.getEmployee().getEmployeeId();
-    }
-
-    /**
-     * Employee and IT can only view own attendance.
-     */
-    private boolean canViewOtherEmployees() {
-        String role = safeLower(session.getRole());
-        return role.contains("hr") || role.contains("admin") || role.contains("supervisor");
-    }
-
-    /**
-     * HR / Admin / Supervisor can open embedded adjustment section.
-     */
-    private boolean canAdjustAttendance() {
-        String role = safeLower(session.getRole());
-        return role.contains("hr") || role.contains("admin") || role.contains("supervisor");
-    }
-
-    /**
-     * HR can submit.
-     */
-    private boolean canSubmitAdjustmentRequests() {
-        String role = safeLower(session.getRole());
-        return role.contains("hr");
-    }
-
-    /**
-     * Admin can approve/reject.
-     */
-    private boolean canApproveAdjustmentRequests() {
-        String role = safeLower(session.getRole());
-        return role.contains("admin");
-    }
-
-    /**
-     * Lowercase helper with null safety.
-     */
     private String safeLower(String text) {
-        return text == null ? "" : text.toLowerCase(Locale.ENGLISH);
+        return text == null ? "" : text.toLowerCase(Locale.ENGLISH).trim();
     }
 
-    /**
-     * Wrapper for employee dropdown display.
-     */
-    private static class EmployeeItem {
-        private final Employee employee;
-
-        public EmployeeItem(Employee employee) {
-            this.employee = employee;
+    private double computeWorkedHours(AttendanceRecord record) {
+        if (record == null || record.getTimeIn() == null || record.getTimeOut() == null) {
+            return 0.0;
         }
 
-        public Employee getEmployee() {
-            return employee;
+        long workedMinutes = Duration.between(record.getTimeIn(), record.getTimeOut()).toMinutes();
+        if (workedMinutes <= 0) {
+            return 0.0;
         }
 
-        @Override
-        public String toString() {
-            return employee.getFullName() + " (" + employee.getEmployeeId() + ")";
-        }
+        long lunchOverlap = computeOverlapMinutes(record.getTimeIn(), record.getTimeOut(), LUNCH_START, LUNCH_END);
+        return Math.max(0, workedMinutes - lunchOverlap) / 60.0;
     }
 
-    /**
-     * Wrapper for month dropdown display.
-     */
-    private static class MonthItem {
-        private final int monthNumber;
-
-        public MonthItem(int monthNumber) {
-            this.monthNumber = monthNumber;
+    private long computeOverlapMinutes(LocalTime startA, LocalTime endA, LocalTime startB, LocalTime endB) {
+        LocalTime overlapStart = startA.isAfter(startB) ? startA : startB;
+        LocalTime overlapEnd = endA.isBefore(endB) ? endA : endB;
+        if (!overlapEnd.isAfter(overlapStart)) {
+            return 0L;
         }
+        return Duration.between(overlapStart, overlapEnd).toMinutes();
+    }
 
-        public int getMonthNumber() {
-            return monthNumber;
-        }
+    private boolean isLate(AttendanceRecord record) {
+        return record != null && record.getTimeIn() != null && record.getTimeIn().isAfter(LATE_CUTOFF);
+    }
 
-        @Override
-        public String toString() {
-            return monthNumber + " - " + formatMonthName(monthNumber);
-        }
+    private double computeOvertimeHours(double workedHours) {
+        return Math.max(0.0, workedHours - 8.0);
+    }
 
-        private static String formatMonthName(int monthNumber) {
-            String raw = Month.of(monthNumber).name().toLowerCase(Locale.ENGLISH);
-            return raw.substring(0, 1).toUpperCase(Locale.ENGLISH) + raw.substring(1);
+    private static class RowMetric {
+        private final double overtimeHours;
+        private final boolean isLate;
+
+        private RowMetric(double overtimeHours, boolean isLate) {
+            this.overtimeHours = overtimeHours;
+            this.isLate = isLate;
         }
     }
 }

@@ -1,7 +1,0 @@
-username,password,role,employeeId,failedAttempts,isLocked
-manuel.garcia,pass1234,employee,10001,0,false
-antonio.lin,pass1234,hr,10002,0,false
-bianca.aquino,pass1234,supervisor,10003,0,false
-isabella.reyes,pass1234,admin,10004,0,false
-eduard.hernandez,pass1234,it,10005,0,false
-atienza.rosie,pass1234,finance,10009,0,false

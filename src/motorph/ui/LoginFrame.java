@@ -1,12 +1,9 @@
 package motorph.ui;
 
-import motorph.model.Employee;
-import motorph.model.UserAccount;
-import motorph.repository.CsvEmployeeRepository;
-import motorph.repository.CsvUserRepository;
-import motorph.service.AuthService;
-import motorph.ui.session.UserSession;
-
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.GridLayout;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -18,10 +15,10 @@ import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.GridLayout;
+import motorph.model.Employee;
+import motorph.repository.CsvEmployeeRepository;
+import motorph.service.AuthService;
+import motorph.ui.session.UserSession;
 
 /**
  * LoginFrame
@@ -35,11 +32,8 @@ public class LoginFrame extends JFrame {
     private JTextField usernameField;
     private JPasswordField passwordField;
 
-    // AuthService depends on CsvUserRepository
-    private final AuthService authService = new AuthService(new CsvUserRepository());
-
-    // Repository for loading employee details after successful login
-    private final CsvEmployeeRepository employeeRepository = new CsvEmployeeRepository();
+    // AuthService now authenticates directly from employees.csv
+    private final AuthService authService = new AuthService(new CsvEmployeeRepository());
 
     public LoginFrame() {
         setTitle("MotorPH Payroll System - Login");
@@ -102,7 +96,7 @@ public class LoginFrame extends JFrame {
         formPanel.setBackground(Theme.CARD_BACKGROUND);
 
         // Username label
-        JLabel usernameLabel = new JLabel("Username");
+        JLabel usernameLabel = new JLabel("Username (Employee ID)");
         usernameLabel.setFont(Theme.FONT_BODY);
         usernameLabel.setForeground(Theme.TEXT_PRIMARY);
 
@@ -166,10 +160,10 @@ public class LoginFrame extends JFrame {
         String password = new String(passwordField.getPassword());
 
         // Authenticate through service layer
-        UserAccount account = authService.login(username, password);
+        Employee employee = authService.login(username, password);
 
         // If login failed, show proper message
-        if (account == null) {
+        if (employee == null) {
 
             String serviceMessage = authService.getLastLoginMessage();
 
@@ -177,37 +171,18 @@ public class LoginFrame extends JFrame {
                 serviceMessage = "Invalid username or password, please try again.";
             }
 
-            String popupMessage;
-            if (serviceMessage.toLowerCase().contains("locked")) {
-                popupMessage = "Account is locked. Please contact your IT/Admin.";
-            } else {
-                popupMessage = "Invalid username or password, please try again.";
-            }
-
             JOptionPane.showMessageDialog(
                     this,
-                    popupMessage,
+                    serviceMessage,
                     "Login Failed",
                     JOptionPane.ERROR_MESSAGE
             );
             return;
         }
 
-        // Load employee linked to account
-        Employee employee = employeeRepository.findById(account.getEmployeeId());
-
-        if (employee == null) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Employee record not found for ID: " + account.getEmployeeId(),
-                    "Login Error",
-                    JOptionPane.ERROR_MESSAGE
-            );
-            return;
-        }
-
         // Build session
-        UserSession session = new UserSession(account, employee);
+        UserSession session = new UserSession(employee);
+        System.out.println("[LoginFrame] Authenticated employee=" + employee);
 
         // Open the main frame
         MainFrame mainFrame = new MainFrame(session);

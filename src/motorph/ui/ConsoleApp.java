@@ -2,18 +2,15 @@ package motorph.ui;
 
 import java.util.List;
 import java.util.Scanner;
-
 import motorph.model.AttendanceRecord;
 import motorph.model.Employee;
-import motorph.model.UserAccount;
+import motorph.repository.ActivityLogRepository;
 import motorph.repository.CsvAttendanceRepository;
 import motorph.repository.CsvEmployeeRepository;
-import motorph.repository.CsvUserRepository;
 import motorph.service.AuthService;
-import motorph.service.PayrollCalculator;
 import motorph.service.ContributionCalculator;
+import motorph.service.PayrollCalculator;
 import motorph.service.PayslipGenerator;
-import motorph.repository.ActivityLogRepository;
 /*checklist natin for documentation: ConsoleApp
  * 1) Test login system
  * 2) Load employee information
@@ -38,28 +35,16 @@ public class ConsoleApp {
 
         System.out.println();
 
-        // AuthService checks credentials using user.cs
-        AuthService auth = new AuthService(new CsvUserRepository());
+        // AuthService checks credentials using employees.csv
+        AuthService auth = new AuthService(new CsvEmployeeRepository());
 
         // Attempt login
-        UserAccount account = auth.login(username, password);
+        Employee emp = auth.login(username, password);
 
         // If login failed, stop the program
-        if (account == null) {
+        if (emp == null) {
             System.out.println("Login failed: Wrong username or password.");
             System.out.println("Please try again.");
-            sc.close();
-            return;
-        }
-        
-        // Employee repository reads employees.csv
-        CsvEmployeeRepository empRepo = new CsvEmployeeRepository();
-
-        // Find employee using employeeId from the login account
-        Employee emp = empRepo.findById(account.getEmployeeId());
-
-        if (emp == null) {
-            System.out.println("Employee record not found for ID: " + account.getEmployeeId());
             sc.close();
             return;
         }

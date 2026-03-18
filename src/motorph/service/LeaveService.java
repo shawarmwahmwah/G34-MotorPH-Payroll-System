@@ -2,15 +2,14 @@ package motorph.service;
 
 import java.util.List;
 import java.util.UUID;
-
 import motorph.model.Employee;
 import motorph.model.LeaveBalance;
 import motorph.model.LeaveRequest;
-import motorph.model.UserAccount;
 import motorph.repository.ActivityLogRepository;
-import motorph.repository.CsvUserRepository;
+import motorph.repository.CsvEmployeeRepository;
 import motorph.repository.LeaveBalanceRepository;
 import motorph.repository.LeaveRepository;
+import motorph.ui.security.RoleAccess;
 
 /*
  * LeaveService
@@ -35,8 +34,8 @@ public class LeaveService {
     // Repository for activity logs
     private final ActivityLogRepository logRepo = new ActivityLogRepository();
 
-    // Repository for users so we can validate approver roles
-    private final CsvUserRepository userRepo = new CsvUserRepository();
+    // Repository for employees so we can validate approver roles
+    private final CsvEmployeeRepository employeeRepo = new CsvEmployeeRepository();
 
     /*
      * Employee submits a leave request.
@@ -388,24 +387,11 @@ public class LeaveService {
      * This keeps your current data working while also matching your final rules.
      */
     private boolean isAuthorizedApprover(String approverId) {
-        List<UserAccount> users = userRepo.loadUsers();
-
-        for (UserAccount user : users) {
-            if (!user.getEmployeeId().equals(approverId)) {
-                continue;
-            }
-
-            String role = user.getRole();
-
-            if (role == null) {
-                return false;
-            }
-
-            return "admin".equalsIgnoreCase(role)
-                    || "hr".equalsIgnoreCase(role)
-                    || "supervisor".equalsIgnoreCase(role);
+        Employee approver = employeeRepo.findById(approverId);
+        if (approver == null || approver.getRole() == null) {
+            return false;
         }
 
-        return false;
+        return RoleAccess.canApproveRequests(new motorph.ui.session.UserSession(approver));
     }
 }

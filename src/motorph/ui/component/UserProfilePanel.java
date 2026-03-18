@@ -1,18 +1,18 @@
 package motorph.ui.component;
 
-import motorph.ui.Theme;
-import motorph.ui.session.UserSession;
-
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.util.Locale;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.Font;
+import motorph.ui.Theme;
+import motorph.ui.security.RoleAccess;
+import motorph.ui.session.UserSession;
 
 /**
  * UserProfilePanel
@@ -27,98 +27,69 @@ public class UserProfilePanel extends JPanel {
     public UserProfilePanel(UserSession session) {
 
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
-        setBackground(Theme.SIDEBAR_BACKGROUND);
-        setBorder(BorderFactory.createEmptyBorder(22, 18, 18, 18));
-        setPreferredSize(new Dimension(280, 190));
+        setOpaque(true);
+        setBackground(new Color(251, 252, 255));
+        setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(Theme.BORDER_LIGHT, 1, true),
+            BorderFactory.createEmptyBorder(12, 12, 12, 12)
+        ));
+        setMaximumSize(new Dimension(Integer.MAX_VALUE, 150));
 
-        // Avatar placeholder
-        JLabel avatarLabel = new JLabel("👤", SwingConstants.CENTER);
-        avatarLabel.setFont(new Font("SansSerif", Font.PLAIN, 40));
-        avatarLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        String initials = buildInitials(session.getEmployeeName());
+        JLabel avatarLabel = new JLabel(initials, SwingConstants.CENTER);
+        avatarLabel.setFont(Theme.FONT_BUTTON.deriveFont(14f));
+        avatarLabel.setForeground(Theme.PRIMARY_DARK);
+        avatarLabel.setOpaque(true);
+        avatarLabel.setBackground(new Color(232, 238, 255));
+        avatarLabel.setBorder(BorderFactory.createLineBorder(new Color(186, 204, 252), 1, true));
+        avatarLabel.setPreferredSize(new Dimension(46, 46));
+        avatarLabel.setMaximumSize(new Dimension(46, 46));
+        avatarLabel.setMinimumSize(new Dimension(46, 46));
+        avatarLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel appNameLabel = new JLabel("MotorPH");
-        appNameLabel.setFont(Theme.FONT_HEADING);
-        appNameLabel.setForeground(Theme.TEXT_PRIMARY);
-        appNameLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        // Use HTML so text can wrap instead of getting cut off
-        JLabel userNameLabel = new JLabel(toCenteredHtml(session.getEmployeeName(), true));
-        userNameLabel.setFont(Theme.FONT_BODY);
+        JLabel userNameLabel = new JLabel(escape(session.getEmployeeName()));
+        userNameLabel.setFont(Theme.FONT_BUTTON.deriveFont(14f));
         userNameLabel.setForeground(Theme.TEXT_PRIMARY);
-        userNameLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        userNameLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel positionLabel = new JLabel(toCenteredHtml(session.getPosition(), false));
+        JLabel roleLabel = new JLabel("Role: " + RoleAccess.getRoleLabel(session));
+        roleLabel.setFont(Theme.FONT_SMALL);
+        roleLabel.setForeground(Theme.TEXT_SECONDARY);
+        roleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JLabel positionLabel = new JLabel("Position: " + escape(session.getPosition()));
         positionLabel.setFont(Theme.FONT_SMALL);
         positionLabel.setForeground(Theme.TEXT_SECONDARY);
-        positionLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        positionLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel roleLabel = new JLabel("Role: " + formatRole(session.getRole()));
-        roleLabel.setFont(Theme.FONT_SMALL);
-        roleLabel.setForeground(new Color(90, 90, 90));
-        roleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        JLabel employeeIdLabel = new JLabel("Employee ID: " + escape(session.getEmployeeId()));
+        employeeIdLabel.setFont(Theme.FONT_SMALL);
+        employeeIdLabel.setForeground(Theme.TEXT_SECONDARY);
+        employeeIdLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         add(avatarLabel);
-        add(Box.createRigidArea(new Dimension(0, 8)));
-        add(appNameLabel);
-        add(Box.createRigidArea(new Dimension(0, 10)));
+        add(Box.createRigidArea(new Dimension(0, 9)));
         add(userNameLabel);
-        add(Box.createRigidArea(new Dimension(0, 6)));
-        add(positionLabel);
-        add(Box.createRigidArea(new Dimension(0, 6)));
+        add(Box.createRigidArea(new Dimension(0, 5)));
         add(roleLabel);
+        add(Box.createRigidArea(new Dimension(0, 2)));
+        add(positionLabel);
+        add(Box.createRigidArea(new Dimension(0, 2)));
+        add(employeeIdLabel);
     }
 
-    /**
-     * Converts plain text to centered HTML so it wraps properly.
-     */
-    private String toCenteredHtml(String text, boolean bold) {
-        if (text == null) {
-            text = "";
+    private String buildInitials(String fullName) {
+        if (fullName == null || fullName.trim().isEmpty()) {
+            return "EM";
         }
 
-        String safeText = text
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;");
-
-        if (bold) {
-            return "<html><div style='text-align:center; width:180px;'><b>" + safeText + "</b></div></html>";
-        }
-
-        return "<html><div style='text-align:center; width:180px;'>" + safeText + "</div></html>";
+        String[] parts = fullName.trim().split("\\s+");
+        String first = parts[0].substring(0, 1).toUpperCase(Locale.ENGLISH);
+        String last = parts.length > 1 ? parts[parts.length - 1].substring(0, 1).toUpperCase(Locale.ENGLISH) : "M";
+        return first + last;
     }
 
-    private String formatRole(String role) {
-        if (role == null || role.trim().isEmpty()) {
-            return "";
-        }
-
-        String value = role.trim().toLowerCase();
-
-        if (value.equals("hr")) {
-            return "HR";
-        }
-
-        if (value.equals("it")) {
-            return "IT";
-        }
-
-        if (value.equals("admin")) {
-            return "Admin";
-        }
-
-        if (value.equals("supervisor")) {
-            return "Supervisor";
-        }
-        
-        if (value.equals("finance")) {
-            return "Finance";
-        }
-
-        if (value.equals("employee")) {
-            return "Employee";
-        }
-
-        return value.substring(0, 1).toUpperCase() + value.substring(1);
+    private String escape(String text) {
+        return text == null ? "" : text;
     }
 }

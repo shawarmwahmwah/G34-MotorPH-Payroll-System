@@ -1,17 +1,14 @@
-# Eclipse junk (do not push)
-.metadata/
+# Build output
 bin/
-.settings/
+build/
+dist/
 *.class
 
-# OS junk
-.DS_Store
-Thumbs.db# Eclipse junk (do not push)
+# IDE metadata
 .metadata/
-bin/
 .settings/
-*.class
+nbproject/private/
 
-# OS junk
+# OS metadata
 .DS_Store
 Thumbs.db

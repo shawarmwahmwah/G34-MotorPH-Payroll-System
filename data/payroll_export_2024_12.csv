@@ -1,0 +1,2 @@
+employeeId,employeeName,year,month,daysWorked,totalHours,overtimePay,leaveDeduction,grossPay,netPay
+10001,"Garcia, Manuel III",2024,12,22,176.50,22432.86,0.00,86155.60,67063.66

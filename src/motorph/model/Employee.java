@@ -35,6 +35,11 @@ public class Employee {
     private final double grossSemiMonthlyRate;
     private final double hourlyRate;
 
+    // Authentication fields now sourced from employees.csv
+    private String username;
+    private String password;
+    private String role;
+
     public Employee(
             String employeeId,
             String lastName,
@@ -54,7 +59,10 @@ public class Employee {
             double phoneAllowance,
             double clothingAllowance,
             double grossSemiMonthlyRate,
-            double hourlyRate
+                double hourlyRate,
+                String username,
+                String password,
+                String role
     ) {
         this.employeeId = employeeId;
         this.lastName = lastName;
@@ -75,6 +83,9 @@ public class Employee {
         this.clothingAllowance = clothingAllowance;
         this.grossSemiMonthlyRate = grossSemiMonthlyRate;
         this.hourlyRate = hourlyRate;
+        this.username = username;
+        this.password = password;
+        this.role = role;
     }
 
     // Getters (read-only)
@@ -101,6 +112,14 @@ public class Employee {
     public double getGrossSemiMonthlyRate() { return grossSemiMonthlyRate; }
     public double getHourlyRate() { return hourlyRate; }
 
+    public String getUsername() { return username; }
+    public String getPassword() { return password; }
+    public String getRole() { return role; }
+
+    public void setUsername(String username) { this.username = username; }
+    public void setPassword(String password) { this.password = password; }
+    public void setRole(String role) { this.role = role; }
+
     // Convenience helper: total allowances
     public double getTotalAllowances() {
         return riceSubsidy + phoneAllowance + clothingAllowance;
@@ -109,5 +128,16 @@ public class Employee {
     // Convenience helper: "Last, First"
     public String getFullName() {
         return lastName + ", " + firstName;
+    }
+
+    @Override
+    public String toString() {
+        return "Employee{"
+                + "employeeId='" + employeeId + '\''
+                + ", fullName='" + getFullName() + '\''
+                + ", position='" + position + '\''
+                + ", role='" + role + '\''
+                + ", status='" + status + '\''
+                + "}";
     }
 }
